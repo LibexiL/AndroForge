@@ -288,6 +288,7 @@ private fun MusicWidget(item: ForgeWidgetItem, pal: Pal, actions: ForgeActions) 
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val h = maxHeight
+        val w = maxWidth
         if (showViz) {
             VisualizerCanvas(
                 frame, VizStyle.BARS, pal.stops(ColorRole.GRADIENT).map { it.copy(alpha = 0.35f) },
@@ -300,7 +301,7 @@ private fun MusicWidget(item: ForgeWidgetItem, pal: Pal, actions: ForgeActions) 
         }
         Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
             if (o.artStyle != ArtStyle.NONE) {
-                AlbumArt(m.art, o.artStyle, m.playing, pal, minOf(h, maxWidth * 0.4f), Modifier.clickable { MediaHub.openPlayer(context) })
+                AlbumArt(m.art, o.artStyle, m.playing, pal, minOf(h, w * 0.4f), Modifier.clickable { MediaHub.openPlayer(context) })
                 Spacer(Modifier.width(12.dp))
             }
             Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.Center) {
@@ -484,10 +485,11 @@ private fun WeatherWidget(item: ForgeWidgetItem, pal: Pal, actions: ForgeActions
             val w = s.weather
             val deg = "°"
             BoxWithConstraints(Modifier.fillMaxSize()) {
-                val tall = maxHeight > 120.dp
+                val boxH = maxHeight
+                val tall = boxH > 120.dp
                 Column(Modifier.fillMaxSize()) {
                     Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-                        WeatherIcon(w.sky, w.isDay, pal, Modifier.size(minOf(maxHeight * (if (tall && o.forecastDays > 0) 0.5f else 0.8f), 76.dp)))
+                        WeatherIcon(w.sky, w.isDay, pal, Modifier.size(minOf(boxH * (if (tall && o.forecastDays > 0) 0.5f else 0.8f), 76.dp)))
                         Spacer(Modifier.width(10.dp))
                         Column(Modifier.weight(1f)) {
                             Text("${w.temp}$deg", fontSize = ts(30f), fontWeight = FontWeight.Light, maxLines = 1)
