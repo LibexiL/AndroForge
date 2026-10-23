@@ -1,0 +1,6 @@
+<resources>
+    <style name="Theme.AndroForge" parent="Theme.AndroForge.Base">
+        <item name="android:enforceNavigationBarContrast">false</item>
+        <item name="android:enforceStatusBarContrast">false</item>
+    </style>
+</resources>

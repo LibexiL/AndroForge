@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">AndroForge</string>
+    <string name="lock_service_label">AndroForge screen lock</string>
+    <string name="lock_service_description">Lets AndroForge lock your screen when you double-tap the home screen. It reads nothing on your screen.</string>
+</resources>

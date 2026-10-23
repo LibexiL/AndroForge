@@ -1,0 +1,103 @@
+name: Build & Release
+
+# Every push to main builds AndroForge. If the signing secrets are set, the build is
+# published as a GitHub Release, which the in-app updater picks up automatically.
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      VERSION_CODE: ${{ github.run_number }}
+      VERSION_NAME: 1.0.${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.14.3"
+
+      - name: Prepare signing key
+        id: signing
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROFORGE_KEYSTORE }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROFORGE_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ] && [ -n "$KEYSTORE_PASSWORD" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/androforge.jks"
+            echo "ANDROFORGE_KEYSTORE_FILE=$RUNNER_TEMP/androforge.jks" >> "$GITHUB_ENV"
+            echo "ANDROFORGE_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Signing secrets are not set - building, but not publishing a release."
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build APK
+        run: |
+          set -o pipefail
+          gradle :app:assembleRelease \
+            -PversionCode="$VERSION_CODE" -PversionName="$VERSION_NAME" \
+            --stacktrace --no-daemon 2>&1 | tee build.log
+
+      - name: Publish build log
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/logs" && cd "$RUNNER_TEMP/logs"
+          cp "$GITHUB_WORKSPACE/build.log" . 2>/dev/null || echo "no log" > build.log
+          echo "run ${{ github.run_number }} ${{ job.status }} ${{ github.sha }}" > status.txt
+          git init -q
+          git add .
+          git -c user.name="androforge-ci" -c user.email="ci@androforge.local" commit -qm "CI log for run ${{ github.run_number }}"
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" HEAD:ci-logs
+
+      - name: Create release
+        if: steps.signing.outputs.signed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          APK="AndroForge-v$VERSION_NAME.apk"
+          cp app/build/outputs/apk/release/app-release.apk "$APK"
+
+          PREV=$(git tag --list 'v*' --sort=-v:refname | head -n1)
+          if [ -n "$PREV" ]; then RANGE="$PREV..HEAD"; else RANGE="HEAD"; fi
+          git log "$RANGE" --no-merges --pretty='- %s' | head -n 40 > changelog.md
+          [ -s changelog.md ] || echo "- Maintenance build" > changelog.md
+
+          python3 - <<'PY'
+          import json, os
+          name = os.environ["VERSION_NAME"]
+          repo = os.environ["GITHUB_REPOSITORY"]
+          info = {
+              "versionCode": int(os.environ["VERSION_CODE"]),
+              "versionName": name,
+              "apkUrl": f"https://github.com/{repo}/releases/download/v{name}/AndroForge-v{name}.apk",
+              "changelog": open("changelog.md").read().strip(),
+          }
+          json.dump(info, open("update.json", "w"), indent=2)
+          PY
+
+          gh release create "v$VERSION_NAME" "$APK" update.json \
+            --title "AndroForge $VERSION_NAME" \
+            --notes-file changelog.md \
+            --latest

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- An anvil-ish "A": two strokes meeting at a peak, a crossbar, and a spark. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M54,30 L72,76 L64,76 L59.5,64 L48.5,64 L44,76 L36,76 Z M51,57 L57,57 L54,48.5 Z" />
+    <path
+        android:fillColor="#FFFF8A3D"
+        android:pathData="M74,28 L76,34 L82,36 L76,38 L74,44 L72,38 L66,36 L72,34 Z" />
+</vector>
