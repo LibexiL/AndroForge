@@ -30,7 +30,26 @@ A fully customizable Android launcher with a dynamic, magnifying dock and a buil
 **Gestures** — swipe up, swipe down and double-tap can each open the drawer, search, notifications,
 quick settings, launcher settings, or lock the screen.
 
-**Theme** — accent from wallpaper, Material You, or a custom color.
+**ThemeForge palettes** — the same palette format as [ThemeForge](https://github.com/LibexiL/ThemeForge):
+8 built-in themes, a palette generated from your wallpaper, import/export of ThemeForge `.json` theme files,
+and the ThemeForge community themes one tap away. Widgets, dock and island all draw with it.
+
+**AndroForge widgets** (long-press home → Widgets → AndroForge), each customizable live like a ThemeForge panel —
+background (solid, gradient, frosted, outline, none), opacity, radius, border, breathing glow, glow with the bass,
+highlight color, title, font and text size:
+- **Clock** — ring with sweeping seconds, digital, stacked or analog
+- **Now playing** — album art (square or spinning record), seekable progress, controls, visualizer behind
+- **Music visualizer** — cava-style bars, mirrored bars, LED blocks, wave, mirrored wave, radial ring, dot columns; palette gradient or any color, falling peaks
+- **Weather** — animated icons, forecast, your location or any city (Open-Meteo, no account needed)
+- **System gauges** — battery, memory and storage as arc gauges or bars
+
+**Dynamic island & custom status bar** — a pill around your front camera that grows into album art + visualizer
+while music plays (tap to expand a full player), animates when you plug in, and peeks new notifications.
+Optionally covers the system status bar with your own: clock (seconds, 12/24h), date, notification icons, network,
+battery style, palette colors. Drawn with an accessibility overlay (the only way an app can draw over the status bar
+without root); turn on *AndroForge system features* in Accessibility.
+
+**Theme** — accent from the palette, wallpaper, Material You, or a custom color.
 
 **Backup** — export/import your whole layout as JSON.
 
@@ -51,6 +70,13 @@ Add two repository secrets under **Settings → Secrets and variables → Action
 | `ANDROFORGE_KEYSTORE_PASSWORD` | the keystore password (alias is `androforge`) |
 
 Without them, CI still builds (to catch errors) but doesn't publish releases.
+
+The quickest way to set them (on Linux, using the `ANDROFORGE-SECRETS.txt` and `.jks` from setup):
+
+```bash
+base64 -w0 ~/Downloads/androforge-release.jks | gh secret set ANDROFORGE_KEYSTORE -R LibexiL/AndroForge
+sed -n 's/^Value: //p' ~/Downloads/ANDROFORGE-SECRETS.txt | head -n1 | tr -d '\r\n' | gh secret set ANDROFORGE_KEYSTORE_PASSWORD -R LibexiL/AndroForge
+```
 **Keep the keystore safe** — updates only install over a build signed with the same key.
 
 ### Installing

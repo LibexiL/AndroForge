@@ -44,9 +44,16 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.ANDROFORGE_KEYSTORE_PASSWORD }}
         run: |
           if [ -n "$KEYSTORE_B64" ] && [ -n "$KEYSTORE_PASSWORD" ]; then
-            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/androforge.jks"
+            # Forgive copy/paste whitespace in either secret.
+            PW=$(printf '%s' "$KEYSTORE_PASSWORD" | tr -d '\r\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+            echo "::add-mask::$PW"
+            printf '%s' "$KEYSTORE_B64" | tr -d ' \r\n' | base64 -d > "$RUNNER_TEMP/androforge.jks"
+            if ! keytool -list -keystore "$RUNNER_TEMP/androforge.jks" -storepass "$PW" -alias androforge >/dev/null 2>&1; then
+              echo "::error title=Signing key::ANDROFORGE_KEYSTORE_PASSWORD doesn't unlock ANDROFORGE_KEYSTORE. Set both secrets again (see README > One-time setup)."
+              exit 1
+            fi
             echo "ANDROFORGE_KEYSTORE_FILE=$RUNNER_TEMP/androforge.jks" >> "$GITHUB_ENV"
-            echo "ANDROFORGE_KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
+            echo "ANDROFORGE_KEYSTORE_PASSWORD=$PW" >> "$GITHUB_ENV"
             echo "signed=true" >> "$GITHUB_OUTPUT"
           else
             echo "::warning::Signing secrets are not set - building, but not publishing a release."
