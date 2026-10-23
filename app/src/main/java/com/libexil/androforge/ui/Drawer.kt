@@ -117,8 +117,9 @@ fun AppDrawer(
             }
         }
     }
-    LaunchedEffect(closed) {
-        if (closed) {
+    val dragging = drag.source != null
+    LaunchedEffect(closed, dragging) {
+        if (closed && !dragging) {
             query = ""
             keyboard?.hide()
             focusManager.clearFocus()
@@ -157,7 +158,7 @@ fun AppDrawer(
             }
 
             override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
-                if (available.y > 0f) {
+                if (available.y > 0f && source == NestedScrollSource.UserInput) {
                     drawer.dragBy(available.y)
                     return available
                 }
@@ -169,6 +170,11 @@ fun AppDrawer(
                     drawer.settle(available.y)
                     return available
                 }
+                return Velocity.Zero
+            }
+
+            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+                if (drawer.progress > 0.001f && drawer.progress < 0.999f) drawer.settle(available.y)
                 return Velocity.Zero
             }
         }

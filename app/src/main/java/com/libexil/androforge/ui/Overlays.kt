@@ -431,7 +431,7 @@ fun ColorDot(color: Color, selected: Boolean, label: String? = null, onClick: ()
             .size(34.dp)
             .clip(CircleShape)
             .background(color)
-            .border(if (selected) 3.dp else 0.dp, Color.White, CircleShape)
+            .then(if (selected) Modifier.border(3.dp, Color.White, CircleShape) else Modifier)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {

@@ -345,7 +345,10 @@ fun Dock(
                         hidden = hidden,
                         showLabel = s.dockShowLabels,
                         bounce = if (bounceKey == entry.key) bounceTick else 0,
-                        onPlaced = { r -> if (i < rects.size) rects[i] = r },
+                        onPlaced = { r ->
+                            if (i < rects.size) rects[i] = r
+                            drag.dockSlots = rects.take(pinned.size).filterNotNull()
+                        },
                     )
                 }
             }

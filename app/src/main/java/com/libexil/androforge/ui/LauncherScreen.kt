@@ -193,6 +193,11 @@ fun LauncherScreen(vm: LauncherViewModel, host: LauncherHost) {
         }
     }
 
+    // Dragging an app out of the drawer reveals the home screen underneath.
+    LaunchedEffect(drag.moved, drag.source) {
+        if (drag.moved && drag.source is DragSource.Drawer) drawer.snapClosed()
+    }
+
     // Keep the pager in range when pages are removed.
     LaunchedEffect(state.pageCount) {
         if (pagerState.currentPage >= state.pageCount) pagerState.scrollToPage(state.pageCount - 1)
@@ -442,7 +447,7 @@ private fun HomePage(
         Box(
             Modifier
                 .fillMaxSize()
-                .pointerInput(page) {
+                .pointerInput(page, cellWpx, cellHpx) {
                     detectTapGestures(
                         onTap = { off ->
                             if (vm.movingWidgetId != null) {
