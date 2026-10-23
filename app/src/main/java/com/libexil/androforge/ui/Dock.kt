@@ -60,6 +60,7 @@ import com.libexil.androforge.data.AppKey
 import com.libexil.androforge.data.DockStyle
 import com.libexil.androforge.data.DragSource
 import com.libexil.androforge.data.FolderItem
+import com.libexil.androforge.data.ForgeWidgetItem
 import com.libexil.androforge.data.HomeItem
 import com.libexil.androforge.data.LauncherState
 import com.libexil.androforge.data.WidgetItem
@@ -103,7 +104,7 @@ fun Dock(
             when (it) {
                 is AppItem -> listOf(it.app)
                 is FolderItem -> it.apps
-                is WidgetItem -> emptyList()
+                is WidgetItem, is ForgeWidgetItem -> emptyList()
             }
         }.toSet()
     }
@@ -174,7 +175,7 @@ fun Dock(
             is DockEntry.Pinned -> when (val item = entry.item) {
                 is AppItem -> vm.launch(item.app, bounds)
                 is FolderItem -> vm.openFolderId = item.id
-                is WidgetItem -> Unit
+                is WidgetItem, is ForgeWidgetItem -> Unit
             }
             is DockEntry.Recent -> vm.launch(entry.app, bounds)
         }
@@ -402,7 +403,7 @@ private fun DockSlot(
                 is DockEntry.Pinned -> when (val item = entry.item) {
                     is AppItem -> AppIcon(item.app, iconSize)
                     is FolderItem -> FolderIcon(item, iconSize)
-                    is WidgetItem -> Unit
+                    is WidgetItem, is ForgeWidgetItem -> Unit
                 }
                 is DockEntry.Recent -> AppIcon(entry.app, iconSize)
             }
@@ -412,7 +413,7 @@ private fun DockSlot(
                     is DockEntry.Pinned -> when (val item = entry.item) {
                         is AppItem -> labelFor(item.app, appsById[item.app.id]?.label)
                         is FolderItem -> item.name
-                        is WidgetItem -> ""
+                        is WidgetItem, is ForgeWidgetItem -> ""
                     }
                     is DockEntry.Recent -> labelFor(entry.app, appsById[entry.app.id]?.label)
                 }

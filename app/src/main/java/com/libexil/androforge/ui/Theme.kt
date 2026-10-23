@@ -27,7 +27,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.core.graphics.ColorUtils
+import com.libexil.androforge.data.ColorRole
+import com.libexil.androforge.data.ForgePalette
 import com.libexil.androforge.data.IconRef
+import com.libexil.androforge.data.PaletteSource
+import com.libexil.androforge.data.Palettes
 import com.libexil.androforge.data.IconShape
 import com.libexil.androforge.data.LauncherSettings
 import com.libexil.androforge.data.ThemeMode
@@ -42,6 +46,66 @@ val LocalSettings = staticCompositionLocalOf { LauncherSettings() }
 val LocalIconOverrides = staticCompositionLocalOf { emptyMap<String, IconRef>() }
 val LocalLabels = staticCompositionLocalOf { emptyMap<String, String>() }
 val LocalAccent = staticCompositionLocalOf { Color(0xFF8B6CFF) }
+val LocalPalette = staticCompositionLocalOf { Pal(Palettes.default) }
+
+/** A ForgePalette with its colors parsed once, ready for drawing. */
+@androidx.compose.runtime.Immutable
+class Pal(val source: ForgePalette) {
+    private fun c(h: String) = Color(Palettes.parse(h))
+    val background = c(source.background)
+    val surface = c(source.surface)
+    val foreground = c(source.foreground)
+    val muted = c(source.muted)
+    val accent = c(source.accent)
+    val accent2 = c(source.accent2)
+    val ansi = source.ansi.map(::c)
+    val gradient: List<Color> = source.gradient.map(::c).let { if (it.size == 1) listOf(it[0], it[0]) else it }
+    val isDark = Palettes.isDark(source.background)
+
+    fun role(r: ColorRole): Color = when (r) {
+        ColorRole.GRADIENT, ColorRole.ACCENT -> accent
+        ColorRole.ACCENT2 -> accent2
+        ColorRole.FOREGROUND -> foreground
+        ColorRole.RED -> ansi.getOrElse(1) { accent }
+        ColorRole.GREEN -> ansi.getOrElse(2) { accent }
+        ColorRole.YELLOW -> ansi.getOrElse(3) { accent }
+        ColorRole.BLUE -> ansi.getOrElse(4) { accent }
+        ColorRole.MAGENTA -> ansi.getOrElse(5) { accent }
+        ColorRole.CYAN -> ansi.getOrElse(6) { accent }
+    }
+
+    /** Colors for a gradient-capable element: the palette gradient, or one role twice. */
+    fun stops(r: ColorRole): List<Color> = if (r == ColorRole.GRADIENT) gradient else listOf(role(r), role(r))
+
+    /** Sample the gradient at t in 0..1. */
+    fun gradientAt(t: Float, stops: List<Color> = gradient): Color {
+        if (stops.size == 1) return stops[0]
+        val x = t.coerceIn(0f, 1f) * (stops.size - 1)
+        val i = x.toInt().coerceAtMost(stops.size - 2)
+        return androidx.compose.ui.graphics.lerp(stops[i], stops[i + 1], x - i)
+    }
+}
+
+@Composable
+fun rememberPalette(settings: LauncherSettings): Pal {
+    val context = LocalContext.current
+    var wallTick by remember { mutableStateOf(0) }
+    if (settings.paletteSource == PaletteSource.WALLPAPER) {
+        DisposableEffect(Unit) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                val wm = WallpaperManager.getInstance(context)
+                val listener = WallpaperManager.OnColorsChangedListener { _, _ -> wallTick++ }
+                wm.addOnColorsChangedListener(listener, Handler(Looper.getMainLooper()))
+                onDispose { wm.removeOnColorsChangedListener(listener) }
+            } else {
+                onDispose { }
+            }
+        }
+    }
+    return remember(settings.paletteSource, settings.palettePreset, settings.customPaletteName, settings.customPalettes, wallTick) {
+        Pal(Palettes.resolve(context, settings))
+    }
+}
 
 /** Superellipse ("squircle") with exponent [n]. */
 class SuperellipseShape(private val n: Float = 4.5f) : Shape {
@@ -111,7 +175,7 @@ fun vivid(color: Int): Int {
 }
 
 @Composable
-fun rememberAccent(settings: LauncherSettings): Color {
+fun rememberAccent(settings: LauncherSettings, palette: Pal): Color {
     val context = LocalContext.current
     var wallColor by remember { mutableStateOf(wallpaperPrimary(context)) }
     DisposableEffect(Unit) {
@@ -125,6 +189,7 @@ fun rememberAccent(settings: LauncherSettings): Color {
         }
     }
     return when (settings.themeMode) {
+        ThemeMode.PALETTE -> palette.accent
         ThemeMode.CUSTOM -> Color(settings.accentColor)
         ThemeMode.MATERIAL_YOU ->
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) dynamicDarkColorScheme(context).primary

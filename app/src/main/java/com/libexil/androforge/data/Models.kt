@@ -65,6 +65,7 @@ fun HomeItem.moved(page: Int, x: Int, y: Int): HomeItem = when (this) {
     is AppItem -> copy(page = page, x = x, y = y)
     is FolderItem -> copy(page = page, x = x, y = y)
     is WidgetItem -> copy(page = page, x = x, y = y)
+    is ForgeWidgetItem -> copy(page = page, x = x, y = y)
 }
 
 fun HomeItem.covers(page: Int, cx: Int, cy: Int): Boolean =
@@ -93,8 +94,25 @@ enum class GestureAction(val label: String) {
 
 @Serializable
 enum class ThemeMode(val label: String) {
-    WALLPAPER("From wallpaper"), MATERIAL_YOU("Material You"), CUSTOM("Custom")
+    PALETTE("Palette accent"), WALLPAPER("From wallpaper"), MATERIAL_YOU("Material You"), CUSTOM("Custom")
 }
+
+@Serializable
+enum class BarMode(val label: String) {
+    OFF("Off"), ISLAND("Island only"), ISLAND_BAR("Island + custom bar")
+}
+
+@Serializable
+enum class IslandIdle(val label: String) { PILL("Pill"), DOT("Camera ring"), HIDDEN("Hidden") }
+
+@Serializable
+enum class IslandColor(val label: String) { BLACK("Black"), PALETTE("Palette") }
+
+@Serializable
+enum class BarBackground(val label: String) { BLACK("Black"), PALETTE("Palette"), GRADIENT("Gradient") }
+
+@Serializable
+enum class BatteryStyle(val label: String) { ICON_PERCENT("Icon + %"), ICON("Icon"), PERCENT("%"), BAR("Line") }
 
 @Serializable
 enum class FolderStyle(val label: String) {
@@ -136,7 +154,36 @@ data class LauncherSettings(
     val drawerShowSuggestions: Boolean = true,
     val drawerAutoFocusSearch: Boolean = false,
     // Theme
-    val themeMode: ThemeMode = ThemeMode.WALLPAPER,
+    val themeMode: ThemeMode = ThemeMode.PALETTE,
+    // Palette (ThemeForge format)
+    val paletteSource: PaletteSource = PaletteSource.WALLPAPER,
+    val palettePreset: String = "Catppuccin Mocha",
+    val customPalettes: List<ForgePalette> = emptyList(),
+    val customPaletteName: String? = null,
+    // Dynamic island & status bar
+    val barMode: BarMode = BarMode.ISLAND,
+    val islandIdle: IslandIdle = IslandIdle.PILL,
+    val islandColor: IslandColor = IslandColor.BLACK,
+    val islandWidthDp: Int = 110,
+    val islandHeightDp: Int = 30,
+    val islandOffsetX: Int = 0,
+    val islandOffsetY: Int = 0,
+    val islandFollowCamera: Boolean = true,
+    val islandMusic: Boolean = true,
+    val islandVisualizer: Boolean = true,
+    val islandCharging: Boolean = true,
+    val islandNotifications: Boolean = true,
+    val islandHideLandscape: Boolean = true,
+    val islandGlow: Boolean = true,
+    val barBackground: BarBackground = BarBackground.BLACK,
+    val barText: ColorRole = ColorRole.FOREGROUND,
+    val barSeconds: Boolean = false,
+    val barTwelveHour: Boolean? = null,
+    val barShowDate: Boolean = false,
+    val barBattery: BatteryStyle = BatteryStyle.ICON_PERCENT,
+    val barNotificationIcons: Boolean = true,
+    val barNetwork: Boolean = true,
+    val barHeightExtraDp: Int = 0,
     val accentColor: Long = 0xFF8B6CFF,
     // Gestures
     val swipeUp: GestureAction = GestureAction.APP_DRAWER,

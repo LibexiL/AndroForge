@@ -25,6 +25,11 @@ import com.libexil.androforge.data.LauncherState
 import com.libexil.androforge.data.LayoutOps
 import com.libexil.androforge.data.WidgetItem
 import com.libexil.androforge.data.moved
+import com.libexil.androforge.data.resized
+import com.libexil.androforge.data.isResizable
+import com.libexil.androforge.data.ForgeKind
+import com.libexil.androforge.data.ForgeWidgetItem
+import com.libexil.androforge.data.defaultLook
 import com.libexil.androforge.data.newId
 import com.libexil.androforge.update.CheckResult
 import com.libexil.androforge.update.UpdateInfo
@@ -80,6 +85,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     var resizeWidgetId by mutableStateOf<String?>(null)
     var movingWidgetId by mutableStateOf<String?>(null)
     var hiddenAppsOpen by mutableStateOf(false)
+    var editForgeId by mutableStateOf<String?>(null)
+    var paletteBrowserOpen by mutableStateOf(false)
     var searchFocusTick by mutableIntStateOf(0)
     var currentPage by mutableIntStateOf(0)
 
@@ -259,6 +266,58 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         drag.clear()
     }
 
+    // ---------------------------------------------------------------- AndroForge widgets
+
+    fun addForgeWidget(kind: ForgeKind, page: Int) {
+        val s = state.value
+        val item = ForgeWidgetItem(
+            id = newId(),
+            spanX = kind.w.coerceAtMost(s.settings.columns),
+            spanY = kind.h.coerceAtMost(s.settings.rows),
+            kind = kind,
+            look = defaultLook(kind),
+        )
+        store.update { LayoutOps.addToHome(it, item, page) }
+        if (page != currentPage) emit(UiEvent.ScrollToPage(page))
+    }
+
+    fun updateForge(id: String, transform: (ForgeWidgetItem) -> ForgeWidgetItem) = store.update { s ->
+        s.copy(items = s.items.map { if (it.id == id && it is ForgeWidgetItem) transform(it) else it })
+    }
+
+    // ---------------------------------------------------------------- palette
+
+    fun addCustomPalette(p: com.libexil.androforge.data.ForgePalette) {
+        updateSettings { s ->
+            val name = uniqueName(p.name, s.customPalettes.map { it.name })
+            s.copy(
+                customPalettes = s.customPalettes + p.copy(name = name),
+                customPaletteName = name,
+                paletteSource = com.libexil.androforge.data.PaletteSource.CUSTOM,
+            )
+        }
+    }
+
+    fun deleteCustomPalette(name: String) = updateSettings { s ->
+        val left = s.customPalettes.filterNot { it.name == name }
+        s.copy(
+            customPalettes = left,
+            customPaletteName = if (s.customPaletteName == name) left.firstOrNull()?.name else s.customPaletteName,
+            paletteSource = if (left.isEmpty() && s.paletteSource == com.libexil.androforge.data.PaletteSource.CUSTOM) {
+                com.libexil.androforge.data.PaletteSource.WALLPAPER
+            } else {
+                s.paletteSource
+            },
+        )
+    }
+
+    private fun uniqueName(base: String, taken: List<String>): String {
+        if (base !in taken) return base
+        var i = 2
+        while ("$base $i" in taken) i++
+        return "$base $i"
+    }
+
     // ---------------------------------------------------------------- widgets
 
     fun placeWidget(widgetId: Int, info: AppWidgetProviderInfo, page: Int) {
@@ -280,19 +339,19 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     fun resizeWidget(id: String, spanX: Int, spanY: Int): Boolean {
         val s = state.value
-        val w = s.items.firstOrNull { it.id == id } as? WidgetItem ?: return false
+        val w = s.items.firstOrNull { it.id == id }?.takeIf { it.isResizable } ?: return false
         if (!LayoutOps.fits(s, w.page, w.x, w.y, spanX, spanY, s.settings.columns, s.settings.rows, ignoreId = id)) {
             toast("Not enough room - move things out of the way first")
             return false
         }
-        store.update { st -> st.copy(items = st.items.map { if (it.id == id && it is WidgetItem) it.copy(spanX = spanX, spanY = spanY) else it }) }
+        store.update { st -> st.copy(items = st.items.map { if (it.id == id) it.resized(spanX, spanY) else it }) }
         return true
     }
 
     fun moveWidgetTo(page: Int, x: Int, y: Int) {
         val id = movingWidgetId ?: return
         val s = state.value
-        val w = s.items.firstOrNull { it.id == id } as? WidgetItem ?: return
+        val w = s.items.firstOrNull { it.id == id }?.takeIf { it.isResizable } ?: return
         if (!LayoutOps.fits(s, page, x, y, w.spanX, w.spanY, s.settings.columns, s.settings.rows, ignoreId = id)) {
             toast("It doesn't fit there")
             return
@@ -307,6 +366,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun closeTopOverlay(): Boolean {
         when {
             menu != null -> menu = null
+            editForgeId != null -> editForgeId = null
+            paletteBrowserOpen -> paletteBrowserOpen = false
             iconPickerFor != null -> iconPickerFor = null
             editApp != null -> editApp = null
             renameFolderId != null -> renameFolderId = null
@@ -399,4 +460,9 @@ interface LauncherHost {
     fun isDefaultLauncher(): Boolean
     fun exportLayout()
     fun importLayout()
+    fun requestPermission(permission: String)
+    fun openNotificationAccess()
+    fun openAccessibility()
+    fun importPalette()
+    fun exportPalette(palette: com.libexil.androforge.data.ForgePalette)
 }

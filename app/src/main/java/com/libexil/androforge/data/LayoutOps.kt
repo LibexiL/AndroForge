@@ -135,7 +135,7 @@ object LayoutOps {
                 }
             }
             is DropTarget.Dock -> {
-                if (item is WidgetItem) return DropResult(s)
+                if (item is WidgetItem || item is ForgeWidgetItem) return DropResult(s)
                 val slot = s.dock.getOrNull(target.index)
                 if (target.onto && slot != null && slot.id != item.id && item is AppItem) {
                     if (src is DragSource.Folder && slot.id == src.folderId) return DropResult(s)
@@ -177,7 +177,7 @@ object LayoutOps {
         for (item in s.items.sortedWith(compareBy({ it.page }, { it.y }, { it.x }))) {
             val sx = item.spanX.coerceAtMost(cols)
             val sy = item.spanY.coerceAtMost(rows)
-            val sized = if (item is WidgetItem) item.copy(spanX = sx, spanY = sy) else item
+            val sized = item.resized(sx, sy)
             if (fits(result, item.page, item.x, item.y, sx, sy, cols, rows)) {
                 result = result.copy(items = result.items + sized)
             } else {

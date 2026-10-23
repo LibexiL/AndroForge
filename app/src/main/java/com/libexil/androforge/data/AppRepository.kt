@@ -283,7 +283,7 @@ class AppRepository(private val context: Context, private val store: LayoutStore
                             else -> item.copy(apps = left)
                         }
                     }
-                    is WidgetItem -> item
+                    is WidgetItem, is ForgeWidgetItem -> item
                 }
             }
             return s.copy(

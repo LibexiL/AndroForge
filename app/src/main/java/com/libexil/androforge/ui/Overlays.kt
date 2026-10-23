@@ -99,6 +99,11 @@ import com.libexil.androforge.data.AppInfo
 import com.libexil.androforge.data.AppItem
 import com.libexil.androforge.data.AppKey
 import com.libexil.androforge.data.FolderItem
+import com.libexil.androforge.data.ForgeWidgetItem
+import com.libexil.androforge.data.ForgeKind
+import com.libexil.androforge.ui.forge.ForgeKindGlyph
+import com.libexil.androforge.data.HomeItem
+import com.libexil.androforge.data.isResizable
 import com.libexil.androforge.data.IconPacks
 import com.libexil.androforge.data.IconRef
 import com.libexil.androforge.data.LauncherState
@@ -141,6 +146,14 @@ fun ContextMenu(req: MenuRequest, vm: LauncherViewModel, host: LauncherHost, sta
                 is FolderItem -> {
                     add(MenuEntry("Rename & color", Icons.Default.Edit) { vm.renameFolderId = item.id })
                     if (!state.settings.lockLayout) add(MenuEntry("Remove folder", Icons.Default.Close) { vm.removeItem(item.id, host) })
+                }
+                is ForgeWidgetItem -> {
+                    add(MenuEntry("Customize", Icons.Default.Edit) { vm.editForgeId = item.id })
+                    if (!state.settings.lockLayout) {
+                        add(MenuEntry("Resize", Icons.Default.Menu) { vm.resizeWidgetId = item.id })
+                        add(MenuEntry("Move", Icons.Default.KeyboardArrowDown) { vm.movingWidgetId = item.id })
+                        add(MenuEntry("Remove", Icons.Default.Close) { vm.removeItem(item.id, host) })
+                    }
                 }
                 is WidgetItem -> {
                     if (!state.settings.lockLayout) {
@@ -249,7 +262,7 @@ fun Dialogs(vm: LauncherViewModel, state: LauncherState, appsById: Map<String, A
     vm.editApp?.let { key -> EditAppDialog(vm, state, key, appsById[key.id]?.label) }
     vm.iconPickerFor?.let { key -> IconPickerDialog(vm, state, key) }
     vm.renameFolderId?.let { id -> LayoutOps.findFolder(state, id)?.let { FolderDialog(vm, it) } }
-    vm.resizeWidgetId?.let { id -> (state.items.firstOrNull { it.id == id } as? WidgetItem)?.let { ResizeDialog(vm, state, it) } }
+    vm.resizeWidgetId?.let { id -> state.items.firstOrNull { it.id == id && it.isResizable }?.let { ResizeDialog(vm, state, it) } }
     if (vm.hiddenAppsOpen) HiddenAppsDialog(vm, state)
 }
 
@@ -440,7 +453,7 @@ fun ColorDot(color: Color, selected: Boolean, label: String? = null, onClick: ()
 }
 
 @Composable
-private fun ResizeDialog(vm: LauncherViewModel, state: LauncherState, widget: WidgetItem) {
+private fun ResizeDialog(vm: LauncherViewModel, state: LauncherState, widget: HomeItem) {
     var w by remember(widget.id) { mutableIntStateOf(widget.spanX) }
     var h by remember(widget.id) { mutableIntStateOf(widget.spanY) }
     AlertDialog(
@@ -570,6 +583,22 @@ fun WidgetPicker(vm: LauncherViewModel, host: LauncherHost) {
                     Text("Loading…", modifier = Modifier.padding(16.dp), color = Color.White.copy(alpha = 0.6f))
                 }
                 LazyColumn(Modifier.fillMaxSize()) {
+                    if (query.isBlank() || "androforge".contains(query.trim(), ignoreCase = true)) {
+                        item(key = "forge-h") {
+                            Text(
+                                "AndroForge",
+                                fontSize = 16.sp,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(top = 18.dp, bottom = 6.dp),
+                            )
+                        }
+                        items(ForgeKind.entries, key = { "forge:" + it.name }) { kind ->
+                            ForgeWidgetRow(kind) {
+                                vm.widgetPickerPage = null
+                                vm.addForgeWidget(kind, page)
+                            }
+                        }
+                    }
                     shown.forEach { (appLabel, infos) ->
                         item(key = "h:$appLabel") {
                             Text(
@@ -589,6 +618,36 @@ fun WidgetPicker(vm: LauncherViewModel, host: LauncherHost) {
                     item { Spacer(Modifier.height(24.dp)) }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ForgeWidgetRow(kind: ForgeKind, onPick: () -> Unit) {
+    val pal = LocalPalette.current
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .background(Color.White.copy(alpha = 0.05f))
+            .clickable(onClick = onPick)
+            .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier
+                .size(width = 96.dp, height = 56.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(pal.background),
+            contentAlignment = Alignment.Center,
+        ) {
+            ForgeKindGlyph(kind, pal)
+        }
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f)) {
+            Text(kind.label, fontSize = 15.sp)
+            Text(kind.blurb, fontSize = 12.sp, color = Color.White.copy(alpha = 0.55f))
         }
     }
 }

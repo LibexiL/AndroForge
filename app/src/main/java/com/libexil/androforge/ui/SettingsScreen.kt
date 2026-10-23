@@ -61,6 +61,23 @@ import com.libexil.androforge.data.IconShape
 import com.libexil.androforge.data.LauncherSettings
 import com.libexil.androforge.data.LauncherState
 import com.libexil.androforge.data.ThemeMode
+import com.libexil.androforge.data.BarBackground
+import com.libexil.androforge.data.BarMode
+import com.libexil.androforge.data.BatteryStyle
+import com.libexil.androforge.data.ColorRole
+import com.libexil.androforge.data.ForgePalette
+import com.libexil.androforge.data.IslandColor
+import com.libexil.androforge.data.IslandIdle
+import com.libexil.androforge.data.PaletteSource
+import com.libexil.androforge.data.Palettes
+import com.libexil.androforge.live.AudioViz
+import com.libexil.androforge.live.MediaHub
+import com.libexil.androforge.live.PermissionBus
+import com.libexil.androforge.ui.forge.EdRoleSwatches
+import com.libexil.androforge.ui.forge.PaletteStrip
+import androidx.compose.material3.TextButton
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.runtime.collectAsState
 import com.libexil.androforge.update.Updater
 import java.text.DateFormat
 import java.util.Date
@@ -77,6 +94,10 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
     val context = LocalContext.current
     fun set(transform: (LauncherSettings) -> LauncherSettings) = vm.updateSettings(transform)
     val iconPacks = remember { IconPacks.installed(context) }
+    val pal = LocalPalette.current
+    val permissionTick by PermissionBus.version.collectAsState()
+    val mediaAccess = remember(permissionTick) { MediaHub.accessGranted(context) }
+    val audioOk = remember(permissionTick) { AudioViz.hasPermission() }
 
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(
@@ -201,6 +222,51 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                     ClickRow("Hidden apps", "${state.hidden.size} hidden") { vm.hiddenAppsOpen = true }
                 }
 
+                item { Section("Palette") }
+                item {
+                    Column(Modifier.padding(horizontal = 20.dp, vertical = 6.dp)) {
+                        Text(pal.source.name, fontSize = 16.sp)
+                        Text("Used by AndroForge widgets, the dock and the island", fontSize = 12.sp, color = Color.White.copy(alpha = 0.55f))
+                        Spacer(Modifier.height(8.dp))
+                        PaletteStrip(pal, Modifier.fillMaxWidth())
+                    }
+                }
+                item { Choice("Source", PaletteSource.entries, s.paletteSource, { it.label }) { v -> set { it.copy(paletteSource = v) } } }
+                if (s.paletteSource == PaletteSource.PRESET) {
+                    Palettes.presets.forEach { p ->
+                        item(key = "preset:" + p.name) {
+                            PaletteRow(Pal(p), selected = s.palettePreset == p.name) { set { it.copy(palettePreset = p.name) } }
+                        }
+                    }
+                }
+                if (s.paletteSource == PaletteSource.CUSTOM) {
+                    if (s.customPalettes.isEmpty()) {
+                        item { Hint("No saved themes yet. Import one from ThemeForge or browse the community themes.") }
+                    }
+                    s.customPalettes.forEach { p ->
+                        item(key = "custom:" + p.name) {
+                            PaletteRow(
+                                Pal(p),
+                                selected = (s.customPaletteName ?: s.customPalettes.firstOrNull()?.name) == p.name,
+                                onDelete = { vm.deleteCustomPalette(p.name) },
+                            ) { set { it.copy(customPaletteName = p.name) } }
+                        }
+                    }
+                }
+                item {
+                    Row(
+                        Modifier
+                            .padding(horizontal = 20.dp, vertical = 8.dp)
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        OutlinedButton(onClick = { vm.paletteBrowserOpen = true }) { Text("Browse ThemeForge themes") }
+                        OutlinedButton(onClick = { host.importPalette() }) { Text("Import .json") }
+                        OutlinedButton(onClick = { host.exportPalette(pal.source) }) { Text("Export") }
+                    }
+                }
+                item { Hint("Theme files are the same format ThemeForge uses, so you can move a theme between your PC and phone.") }
+
                 item { Section("Look & feel") }
                 item { Choice("Accent color", ThemeMode.entries, s.themeMode, { it.label }) { v -> set { it.copy(themeMode = v) } } }
                 if (s.themeMode == ThemeMode.CUSTOM ||
@@ -209,6 +275,77 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                     item { ColorRow("Custom accent", s.accentColor, accentPresets) { c -> set { it.copy(accentColor = c) } } }
                 }
                 item { ClickRow("Wallpaper", "Pick a new wallpaper") { host.pickWallpaper() } }
+
+                item { Section("Dynamic island & status bar") }
+                if (s.barMode != BarMode.OFF && !LockService.isRunning) {
+                    item {
+                        Banner(
+                            "Turn on AndroForge system features",
+                            "Android only lets an accessibility service draw over the status bar. It doesn't read your screen.",
+                            "Open accessibility",
+                        ) { host.openAccessibility() }
+                    }
+                }
+                if (s.barMode != BarMode.OFF && !mediaAccess) {
+                    item {
+                        Banner(
+                            "Allow notification access",
+                            "Needed for music, notification peeks and the notification icons in your bar.",
+                            "Allow",
+                        ) { host.openNotificationAccess() }
+                    }
+                }
+                if (s.barMode != BarMode.OFF && s.islandVisualizer && !audioOk) {
+                    item {
+                        Banner(
+                            "Let the visualizer hear your music",
+                            "Audio access lets the island and widgets react to what's playing. Nothing is recorded or saved.",
+                            "Allow",
+                        ) { host.requestPermission(android.Manifest.permission.RECORD_AUDIO) }
+                    }
+                }
+                item { Choice("Mode", BarMode.entries, s.barMode, { it.label }) { v -> set { it.copy(barMode = v) } } }
+                if (s.barMode != BarMode.OFF) {
+                    item { Choice("When idle", IslandIdle.entries, s.islandIdle, { it.label }) { v -> set { it.copy(islandIdle = v) } } }
+                    item { Choice("Island color", IslandColor.entries, s.islandColor, { it.label }) { v -> set { it.copy(islandColor = v) } } }
+                    item { IntSlider("Width", s.islandWidthDp, 50..240, suffix = "dp") { v -> set { it.copy(islandWidthDp = v) } } }
+                    item { IntSlider("Height", s.islandHeightDp, 18..48, suffix = "dp") { v -> set { it.copy(islandHeightDp = v) } } }
+                    item {
+                        SwitchRow("Center on the camera", s.islandFollowCamera, "Lines the island up with your front camera hole") { v ->
+                            set { it.copy(islandFollowCamera = v) }
+                        }
+                    }
+                    item { IntSlider("Move sideways", s.islandOffsetX, -160..160, suffix = "dp") { v -> set { it.copy(islandOffsetX = v) } } }
+                    item { IntSlider("Move down", s.islandOffsetY, -12..40, suffix = "dp") { v -> set { it.copy(islandOffsetY = v) } } }
+                    item { SwitchRow("Music", s.islandMusic, "Album art + visualizer; tap to expand the player") { v -> set { it.copy(islandMusic = v) } } }
+                    item { SwitchRow("Visualizer in island", s.islandVisualizer) { v -> set { it.copy(islandVisualizer = v) } } }
+                    item { SwitchRow("Charging animation", s.islandCharging) { v -> set { it.copy(islandCharging = v) } } }
+                    item { SwitchRow("Notification peeks", s.islandNotifications, "Tap a peek to open it, swipe up to dismiss") { v -> set { it.copy(islandNotifications = v) } } }
+                    item { SwitchRow("Palette glow", s.islandGlow) { v -> set { it.copy(islandGlow = v) } } }
+                    item { SwitchRow("Hide in landscape", s.islandHideLandscape, "Keeps games and videos clear") { v -> set { it.copy(islandHideLandscape = v) } } }
+                }
+                if (s.barMode == BarMode.ISLAND_BAR) {
+                    item { Section("Custom status bar") }
+                    item { Hint("Covers the system status bar with your own. Swiping down still opens notifications.") }
+                    item { Choice("Background", BarBackground.entries, s.barBackground, { it.label }) { v -> set { it.copy(barBackground = v) } } }
+                    item {
+                        Column(Modifier.padding(horizontal = 20.dp)) {
+                            EdRoleSwatches("Text color", pal, s.barText, listOf(ColorRole.FOREGROUND, ColorRole.ACCENT, ColorRole.ACCENT2, ColorRole.RED, ColorRole.GREEN, ColorRole.YELLOW, ColorRole.BLUE, ColorRole.MAGENTA, ColorRole.CYAN)) { v ->
+                                set { it.copy(barText = v) }
+                            }
+                        }
+                    }
+                    item { SwitchRow("Seconds", s.barSeconds) { v -> set { it.copy(barSeconds = v) } } }
+                    item {
+                        Choice("Clock", listOf<Boolean?>(null, true, false), s.barTwelveHour, { if (it == null) "System" else if (it) "12-hour" else "24-hour" }) { v ->
+                            set { it.copy(barTwelveHour = v) }
+                        }
+                    }
+                    item { SwitchRow("Date", s.barShowDate) { v -> set { it.copy(barShowDate = v) } } }
+                    item { Choice("Battery", BatteryStyle.entries, s.barBattery, { it.label }) { v -> set { it.copy(barBattery = v) } } }
+                    item { SwitchRow("Notification icons", s.barNotificationIcons) { v -> set { it.copy(barNotificationIcons = v) } } }
+                    item { SwitchRow("Wi-Fi / mobile icon", s.barNetwork) { v -> set { it.copy(barNetwork = v) } } }
+                }
 
                 item { Section("Gestures") }
                 item { Choice("Swipe up", GestureAction.entries, s.swipeUp, { it.label }) { v -> set { it.copy(swipeUp = v) } } }
@@ -277,6 +414,88 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
 }
 
 // ------------------------------------------------------------------- building blocks
+
+@Composable
+private fun PaletteRow(pal: Pal, selected: Boolean, onDelete: (() -> Unit)? = null, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 20.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(pal.source.name, fontSize = 15.sp, color = if (selected) MaterialTheme.colorScheme.primary else Color.Unspecified)
+                if (selected) Text("  \u2713", color = MaterialTheme.colorScheme.primary)
+            }
+            Spacer(Modifier.height(6.dp))
+            PaletteStrip(pal, Modifier.fillMaxWidth())
+        }
+        if (onDelete != null) {
+            IconButton(onClick = onDelete) { Icon(Icons.Default.Close, "Delete theme") }
+        }
+    }
+}
+
+/** ThemeForge's community themes, fetched straight from its GitHub repo. */
+@Composable
+fun PaletteBrowser(vm: LauncherViewModel) {
+    val themes by androidx.compose.runtime.produceState<List<Pair<ForgePalette, String>>?>(null) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val c = java.net.URL(Palettes.COMMUNITY_INDEX).openConnection() as java.net.HttpURLConnection
+                c.connectTimeout = 12_000
+                c.readTimeout = 15_000
+                try {
+                    Palettes.parseIndex(c.inputStream.bufferedReader().readText())
+                } finally {
+                    c.disconnect()
+                }
+            } catch (e: Exception) {
+                emptyList()
+            }
+        }
+    }
+    androidx.compose.ui.window.Dialog(onDismissRequest = { vm.paletteBrowserOpen = false }) {
+        androidx.compose.material3.Card(shape = androidx.compose.foundation.shape.RoundedCornerShape(28.dp)) {
+            Column(Modifier.padding(vertical = 16.dp)) {
+                Text("ThemeForge themes", fontSize = 20.sp, modifier = Modifier.padding(horizontal = 20.dp))
+                Text(
+                    "Community themes from the ThemeForge repo. Tap one to add it.",
+                    fontSize = 12.sp,
+                    color = Color.White.copy(alpha = 0.6f),
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+                )
+                val list = themes
+                when {
+                    list == null -> Text("Loading\u2026", modifier = Modifier.padding(20.dp))
+                    list.isEmpty() -> Text("Couldn't load the theme list. Check your connection.", modifier = Modifier.padding(20.dp))
+                    else -> LazyColumn(Modifier.heightIn(max = 460.dp)) {
+                        items(list.size) { i ->
+                            val (p, desc) = list[i]
+                            Column(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        vm.addCustomPalette(p)
+                                        vm.paletteBrowserOpen = false
+                                    }
+                                    .padding(horizontal = 20.dp, vertical = 10.dp),
+                            ) {
+                                Text(p.name, fontSize = 15.sp)
+                                if (desc.isNotBlank()) Text(desc, fontSize = 12.sp, color = Color.White.copy(alpha = 0.55f))
+                                Spacer(Modifier.height(6.dp))
+                                PaletteStrip(Pal(p), Modifier.fillMaxWidth())
+                            }
+                        }
+                    }
+                }
+                TextButton(onClick = { vm.paletteBrowserOpen = false }, modifier = Modifier.align(Alignment.End).padding(end = 12.dp)) { Text("Close") }
+            }
+        }
+    }
+}
 
 @Composable
 private fun Section(title: String) {

@@ -80,6 +80,7 @@ import com.libexil.androforge.data.AppItem
 import com.libexil.androforge.data.DragSource
 import com.libexil.androforge.data.DropTarget
 import com.libexil.androforge.data.FolderItem
+import com.libexil.androforge.data.ForgeWidgetItem
 import com.libexil.androforge.data.GestureAction
 import com.libexil.androforge.data.HomeItem
 import com.libexil.androforge.data.LauncherState
@@ -89,6 +90,10 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
+import android.Manifest
+import com.libexil.androforge.ui.forge.ForgeActions
+import com.libexil.androforge.ui.forge.ForgeEditor
+import com.libexil.androforge.ui.forge.ForgeWidget
 
 /** Mutable holder for layout positions that shouldn't trigger recomposition. */
 class PosHolder {
@@ -153,7 +158,8 @@ fun LauncherScreen(vm: LauncherViewModel, host: LauncherHost) {
     val state by vm.state.collectAsStateWithLifecycle()
     val apps by vm.apps.collectAsStateWithLifecycle()
     val settings = state.settings
-    val accent = rememberAccent(settings)
+    val palette = rememberPalette(settings)
+    val accent = rememberAccent(settings, palette)
     val appsById = remember(apps) { apps.associateBy { it.key.id } }
     val scope = rememberCoroutineScope()
     val drag = remember { DragState() }
@@ -215,6 +221,7 @@ fun LauncherScreen(vm: LauncherViewModel, host: LauncherHost) {
         LocalIconOverrides provides state.icons,
         LocalLabels provides state.labels,
         LocalAccent provides accent,
+        LocalPalette provides palette,
     ) {
         AndroForgeTheme(accent) {
             BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -302,6 +309,19 @@ fun LauncherScreen(vm: LauncherViewModel, host: LauncherHost) {
 
                 if (vm.movingWidgetId != null) MoveWidgetHint(onCancel = { vm.movingWidgetId = null })
 
+                vm.editForgeId?.let { id ->
+                    (state.items.firstOrNull { it.id == id } as? ForgeWidgetItem)?.let { item ->
+                        ForgeEditor(
+                            item = item,
+                            pal = palette,
+                            onOptions = { t -> vm.updateForge(id) { it.copy(options = t(it.options)) } },
+                            onLook = { t -> vm.updateForge(id) { it.copy(look = t(it.look)) } },
+                            onRequestLocation = { host.requestPermission(Manifest.permission.ACCESS_COARSE_LOCATION) },
+                            onClose = { vm.editForgeId = null },
+                        )
+                    } ?: run { vm.editForgeId = null }
+                }
+
                 vm.menu?.let { ContextMenu(it, vm, host, state, appsById) }
 
                 Dialogs(vm, state, appsById, host)
@@ -309,6 +329,8 @@ fun LauncherScreen(vm: LauncherViewModel, host: LauncherHost) {
                 if (vm.widgetPickerPage != null) WidgetPicker(vm, host)
 
                 if (vm.settingsOpen) SettingsScreen(vm, host, state, apps)
+
+                if (vm.paletteBrowserOpen) PaletteBrowser(vm)
 
                 UpdateDialog(vm)
 
@@ -476,6 +498,7 @@ private fun HomePage(
                     when (item) {
                         is AppItem -> HomeAppCell(item, appsById[item.app.id]?.label, vm, drag, onDragEnd)
                         is FolderItem -> HomeFolderCell(item, vm, drag, onDragEnd)
+                        is ForgeWidgetItem -> ForgeWidgetCell(item, vm, host)
                         is WidgetItem -> WidgetCell(
                             item, vm, host,
                             widthDp = (cellW * item.spanX).value.roundToInt(),
@@ -567,6 +590,36 @@ private fun HomeFolderCell(item: FolderItem, vm: LauncherViewModel, drag: DragSt
                 onDragEnd = { endDrag() },
             ),
     ) { FolderIcon(item, settings.iconSizeDp.dp) }
+}
+
+@Composable
+private fun ForgeWidgetCell(item: ForgeWidgetItem, vm: LauncherViewModel, host: LauncherHost) {
+    val pos = remember { PosHolder() }
+    val current by rememberUpdatedState(item)
+    val actions = remember(host, vm) {
+        object : ForgeActions {
+            override fun requestAudio() = host.requestPermission(Manifest.permission.RECORD_AUDIO)
+            override fun requestLocation() = host.requestPermission(Manifest.permission.ACCESS_COARSE_LOCATION)
+            override fun openNotificationAccess() = host.openNotificationAccess()
+            override fun customize() {
+                vm.editForgeId = current.id
+            }
+        }
+    }
+    val haptic = LocalHapticFeedback.current
+    Box(
+        Modifier
+            .fillMaxSize()
+            .trackPosition(pos)
+            .pointerInput(item.id) {
+                detectTapGestures(onLongPress = { off ->
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    vm.menu = MenuRequest(pos.pos + off, MenuTarget.Home(current, inDock = false))
+                })
+            },
+    ) {
+        ForgeWidget(item, LocalPalette.current, actions)
+    }
 }
 
 @Composable
@@ -680,7 +733,7 @@ private fun DragGhost(drag: DragState, iconSizeDp: Int) {
         when (item) {
             is AppItem -> AppIcon(item.app, size)
             is FolderItem -> FolderIcon(item, size)
-            is WidgetItem -> Unit
+            is WidgetItem, is ForgeWidgetItem -> Unit
         }
     }
 }

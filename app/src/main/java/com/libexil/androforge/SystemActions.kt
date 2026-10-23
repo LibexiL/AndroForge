@@ -33,7 +33,7 @@ object SystemActions {
         if (!LockService.lockScreen()) {
             Toast.makeText(
                 context,
-                "Turn on \"AndroForge screen lock\" in Accessibility to use this gesture",
+                "Turn on \"AndroForge system features\" in Accessibility to use this gesture",
                 Toast.LENGTH_LONG,
             ).show()
             openAccessibilitySettings(context)

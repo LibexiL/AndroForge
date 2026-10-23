@@ -21,6 +21,11 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.Lifecycle
 import com.libexil.androforge.data.WidgetItem
+import com.libexil.androforge.data.ForgePalette
+import com.libexil.androforge.data.Palettes
+import com.libexil.androforge.live.ForgeNotificationListener
+import com.libexil.androforge.live.PermissionBus
+import android.content.ComponentName
 import com.libexil.androforge.ui.LauncherScreen
 import com.libexil.androforge.update.UpdateNotifier
 
@@ -43,6 +48,43 @@ class MainActivity : ComponentActivity(), LauncherHost {
     private val requestHome = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { }
 
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+
+    private val runtimePermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        PermissionBus.changed()
+        if (!granted) {
+            Toast.makeText(this, "Permission denied - you can allow it in App info → Permissions", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private var paletteExport: ForgePalette? = null
+
+    private val importPaletteDoc = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@registerForActivityResult
+        val name = uri.lastPathSegment?.substringAfterLast('/')?.substringBeforeLast('.')?.replace('-', ' ')
+            ?.replaceFirstChar { it.uppercase() } ?: "Imported"
+        val palette = try {
+            contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }?.let { Palettes.parseThemeFile(it, name) }
+        } catch (e: Exception) {
+            null
+        }
+        if (palette != null) {
+            vm.addCustomPalette(palette)
+            Toast.makeText(this, "Theme \u201c${palette.name}\u201d added", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(this, "That isn't a ThemeForge theme file", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private val exportPaletteDoc = registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        val p = paletteExport ?: return@registerForActivityResult
+        if (uri == null) return@registerForActivityResult
+        try {
+            contentResolver.openOutputStream(uri)?.use { it.write(Palettes.toThemeFile(p).toByteArray()) }
+            Toast.makeText(this, "Theme saved - open it in ThemeForge with Import", Toast.LENGTH_LONG).show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "Export failed: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
 
     private val exportDoc = registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri == null) return@registerForActivityResult
@@ -92,6 +134,8 @@ class MainActivity : ComponentActivity(), LauncherHost {
     override fun onResume() {
         super.onResume()
         vm.maybeAutoCheck()
+        // Coming back from a settings screen may have changed access.
+        PermissionBus.changed()
     }
 
     override fun onStop() {
@@ -262,6 +306,42 @@ class MainActivity : ComponentActivity(), LauncherHost {
     }
 
     override fun exportLayout() = exportDoc.launch("androforge-layout.json")
+
+    override fun requestPermission(permission: String) {
+        if (ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED) {
+            PermissionBus.changed()
+        } else {
+            runtimePermission.launch(permission)
+        }
+    }
+
+    override fun openNotificationAccess() {
+        val component = ComponentName(this, ForgeNotificationListener::class.java)
+        val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            Intent(Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS)
+                .putExtra(Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME, component.flattenToString())
+        } else {
+            Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+        }
+        try {
+            startActivity(intent)
+        } catch (e: Exception) {
+            startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+        }
+        Toast.makeText(this, "Turn on AndroForge", Toast.LENGTH_SHORT).show()
+    }
+
+    override fun openAccessibility() {
+        SystemActions.openAccessibilitySettings(this)
+        Toast.makeText(this, "Open \u201cAndroForge system features\u201d and turn it on", Toast.LENGTH_LONG).show()
+    }
+
+    override fun importPalette() = importPaletteDoc.launch(arrayOf("application/json", "text/plain", "*/*"))
+
+    override fun exportPalette(palette: ForgePalette) {
+        paletteExport = palette
+        exportPaletteDoc.launch(palette.name.lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-') + ".json")
+    }
 
     override fun importLayout() = importDoc.launch(arrayOf("application/json", "text/plain", "*/*"))
 
