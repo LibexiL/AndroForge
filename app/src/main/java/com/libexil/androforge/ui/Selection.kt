@@ -42,6 +42,8 @@ import androidx.compose.ui.window.Dialog
 import com.libexil.androforge.LauncherViewModel
 import com.libexil.androforge.data.AppInfo
 import com.libexil.androforge.data.AppKey
+import com.libexil.androforge.data.AppCategory
+import androidx.compose.foundation.horizontalScroll
 import com.libexil.androforge.data.LauncherState
 import com.libexil.androforge.data.LayoutOps
 
@@ -81,7 +83,17 @@ fun SelectionBar(vm: LauncherViewModel, state: LauncherState) {
 
 @Composable
 fun NewFolderDialog(vm: LauncherViewModel) {
-    var name by remember { mutableStateOf("") }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val all = vm.apps.value
+    // Name it after what most of the selected apps are, and offer the rest of that kind.
+    val guess = remember(vm.selected) {
+        vm.selected.mapNotNull { k -> all.firstOrNull { it.key == k }?.let { AppCategory.of(context, it) } }
+            .groupingBy { it }.eachCount().maxByOrNull { it.value }?.key
+    }
+    var name by remember { mutableStateOf(guess?.label ?: "") }
+    val more = remember(guess, vm.selected) {
+        if (guess == null) emptyList() else all.filter { it.key !in vm.selected && AppCategory.of(context, it) == guess }
+    }
     AlertDialog(
         onDismissRequest = { vm.newFolderDialog = false },
         title = { Text("New folder") },
@@ -96,6 +108,18 @@ fun NewFolderDialog(vm: LauncherViewModel) {
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
+                if (guess != null && more.isNotEmpty()) {
+                    Spacer(Modifier.padding(4.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("More ${guess.label.lowercase()} apps", fontSize = 13.sp)
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(top = 4.dp)) {
+                                more.take(5).forEach { AppIcon(it.key, 22.dp) }
+                            }
+                        }
+                        TextButton(onClick = { vm.selected = (vm.selected + more.map { it.key }).distinct() }) { Text("Add ${more.size}") }
+                    }
+                }
             }
         },
         confirmButton = {
@@ -112,39 +136,129 @@ fun NewFolderDialog(vm: LauncherViewModel) {
 
 /**
  * Pick many apps at once - for a brand-new folder ([folderId] == "") or to add/remove apps
- * in an existing one.
+ * in an existing one. Suggests apps by kind (Games, Shopping, Social...).
  */
 @Composable
 fun FolderAppPicker(vm: LauncherViewModel, state: LauncherState, apps: List<AppInfo>, folderId: String) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     val existing = if (folderId.isEmpty()) null else LayoutOps.findFolder(state, folderId)
     var picked by remember(folderId) { mutableStateOf(existing?.apps ?: emptyList<AppKey>()) }
     var name by remember(folderId) { mutableStateOf(existing?.name ?: "") }
+    var nameTouched by remember(folderId) { mutableStateOf(existing != null) }
     var query by remember { mutableStateOf("") }
+    var active by remember(folderId) { mutableStateOf<AppCategory?>(null) }
     val labels = state.labels
-    val list = remember(apps, query, labels, state.hidden) {
-        apps.filter { it.key.id !in state.hidden }
-            .sortedBy { (labels[it.key.id] ?: it.label).lowercase() }
-            .filter { query.isBlank() || (labels[it.key.id] ?: it.label).contains(query.trim(), ignoreCase = true) }
+    val visible = remember(apps, state.hidden) { apps.filter { it.key.id !in state.hidden } }
+    fun labelOf(a: AppInfo) = labels[a.key.id] ?: a.label
+
+    // Work out every app's kind off the main thread.
+    val byCategory by androidx.compose.runtime.produceState(emptyMap<AppCategory, List<AppInfo>>(), visible) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            visible.mapNotNull { a -> AppCategory.of(context, a)?.let { it to a } }
+                .groupBy({ it.first }, { it.second })
+        }
+    }
+    val categoryOf = remember(byCategory) { byCategory.flatMap { (c, l) -> l.map { it.key to c } }.toMap() }
+    val chips = remember(byCategory) { byCategory.entries.filter { it.value.isNotEmpty() }.sortedByDescending { it.value.size } }
+
+    // What the folder looks like it's for: the name you typed, or most of the apps already in it.
+    val inferred = remember(name, picked, categoryOf) {
+        AppCategory.fromName(name) ?: picked.mapNotNull { categoryOf[it] }.groupingBy { it }.eachCount()
+            .maxByOrNull { it.value }?.takeIf { it.value >= 2 || picked.size == 1 }?.key
+    }
+    val focus = active ?: inferred
+    val suggestions = remember(focus, byCategory, picked) {
+        focus?.let { c -> byCategory[c].orEmpty().filter { it.key !in picked } }.orEmpty()
+    }
+
+    val list = remember(visible, query, labels, focus, categoryOf) {
+        visible
+            .filter { query.isBlank() || labelOf(it).contains(query.trim(), ignoreCase = true) }
+            .sortedWith(compareBy<AppInfo>({ if (focus != null && categoryOf[it.key] == focus) 0 else 1 }, { labelOf(it).lowercase() }))
     }
     fun close() {
         vm.folderPickerFor = null
+    }
+    fun pickCategory(c: AppCategory) {
+        val members = byCategory[c].orEmpty().map { it.key }
+        if (active == c) {
+            picked = picked - members.toSet()
+            active = null
+        } else {
+            active = c
+            picked = picked + members.filter { it !in picked }
+            if (!nameTouched || name.isBlank()) name = c.label
+        }
     }
     Dialog(onDismissRequest = ::close) {
         Card(shape = RoundedCornerShape(28.dp)) {
             Column(Modifier.padding(vertical = 16.dp)) {
                 Text(
-                    if (existing == null) "New folder" else "Apps in “${existing.name}”",
+                    if (existing == null) "New folder" else "Apps in \u201c${existing.name}\u201d",
                     fontSize = 20.sp,
                     modifier = Modifier.padding(horizontal = 20.dp),
                 )
                 if (existing == null) {
                     OutlinedTextField(
                         value = name,
-                        onValueChange = { name = it.take(30) },
+                        onValueChange = {
+                            name = it.take(30)
+                            nameTouched = true
+                        },
                         label = { Text("Folder name") },
+                        placeholder = { Text("Try \u201cGames\u201d or \u201cShopping\u201d") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp),
                     )
+                }
+                if (chips.isNotEmpty()) {
+                    Text(
+                        "SUGGESTED BY KIND",
+                        fontSize = 10.5.sp,
+                        letterSpacing = 1.4.sp,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(start = 20.dp, top = 6.dp, bottom = 4.dp),
+                    )
+                    androidx.compose.foundation.layout.Row(
+                        Modifier
+                            .horizontalScroll(androidx.compose.foundation.rememberScrollState())
+                            .padding(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        chips.forEach { (c, members) ->
+                            androidx.compose.material3.FilterChip(
+                                selected = active == c,
+                                onClick = { pickCategory(c) },
+                                label = { Text("${c.label}  ${members.size}") },
+                            )
+                        }
+                    }
+                }
+                if (focus != null && suggestions.isNotEmpty()) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 6.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f))
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                if (existing != null || picked.isNotEmpty()) "More ${focus.label.lowercase()} apps" else "${focus.label} apps",
+                                fontSize = 13.sp,
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.padding(top = 4.dp)) {
+                                suggestions.take(6).forEach { AppIcon(it.key, 24.dp) }
+                                if (suggestions.size > 6) Text("+${suggestions.size - 6}", fontSize = 12.sp, color = Color.White.copy(alpha = 0.6f))
+                            }
+                        }
+                        TextButton(onClick = {
+                            picked = picked + suggestions.map { it.key }
+                            if (existing == null && name.isBlank()) name = focus.label
+                        }) { Text("Add all ${suggestions.size}") }
+                    }
                 }
                 OutlinedTextField(
                     value = query,
@@ -153,9 +267,10 @@ fun FolderAppPicker(vm: LauncherViewModel, state: LauncherState, apps: List<AppI
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
                 )
-                LazyColumn(Modifier.heightIn(max = 400.dp)) {
+                LazyColumn(Modifier.heightIn(max = 360.dp)) {
                     items(list, key = { it.key.id }) { app ->
                         val on = app.key in picked
+                        val cat = categoryOf[app.key]
                         Row(
                             Modifier
                                 .fillMaxWidth()
@@ -165,7 +280,16 @@ fun FolderAppPicker(vm: LauncherViewModel, state: LauncherState, apps: List<AppI
                         ) {
                             AppIcon(app.key, 36.dp)
                             Spacer(Modifier.width(12.dp))
-                            Text(labels[app.key.id] ?: app.label, modifier = Modifier.weight(1f))
+                            Column(Modifier.weight(1f)) {
+                                Text(labelOf(app), maxLines = 1)
+                                if (cat != null) {
+                                    Text(
+                                        cat.label,
+                                        fontSize = 11.sp,
+                                        color = if (cat == focus) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.45f),
+                                    )
+                                }
+                            }
                             Checkbox(checked = on, onCheckedChange = { picked = if (on) picked - app.key else picked + app.key })
                         }
                     }
