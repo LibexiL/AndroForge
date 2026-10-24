@@ -313,7 +313,7 @@ fun ShelfWidget(item: ForgeWidgetItem, pal: Pal, actions: ForgeActions) {
 }
 
 @Composable
-private fun ShelfIcon(key: com.libexil.androforge.data.AppKey, label: String?, size: androidx.compose.ui.unit.Dp, showLabel: Boolean, hl: Color, actions: ForgeActions) {
+private fun ShelfIcon(key: com.libexil.androforge.data.AppKey, label: String?, iconSize: androidx.compose.ui.unit.Dp, showLabel: Boolean, hl: Color, actions: ForgeActions) {
     val motion = LocalMotion.current
     val lift = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
@@ -340,7 +340,7 @@ private fun ShelfIcon(key: com.libexil.androforge.data.AppKey, label: String?, s
                 .drawBehind {
                     if (lift.value > 0.01f) drawCircle(hl.copy(alpha = 0.35f * lift.value), size.minDimension * 0.7f)
                 },
-        ) { AppIcon(key, size) }
+        ) { AppIcon(key, iconSize) }
         if (showLabel) IconLabel(labelFor(key, label), sizeSp = 10)
     }
 }

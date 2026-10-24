@@ -561,3 +561,239 @@ private fun AlphaScroller(
         }
     }
 }
+
+
+@Composable
+private fun SectionTitle(text: String) {
+    Text(
+        text.uppercase(),
+        color = Color.White.copy(alpha = 0.55f),
+        fontSize = 11.sp,
+        letterSpacing = 1.5.sp,
+        modifier = Modifier.padding(start = 10.dp, top = 4.dp, bottom = 8.dp),
+    )
+}
+
+@Composable
+private fun DrawerAppCell(app: AppInfo, label: String, vm: LauncherViewModel, drag: DragState, onDragEnd: () -> Unit) {
+    val settings = LocalSettings.current
+    val pos = remember { PosHolder() }
+    val haptic = LocalHapticFeedback.current
+    val endDrag by rememberUpdatedState(onDragEnd)
+    var pressed by remember { mutableStateOf(false) }
+    val selecting = vm.selecting
+    val isSelected = selecting && app.key in vm.selected
+    val accent = LocalAccent.current
+    val motion = LocalMotion.current
+    val selScale by androidx.compose.animation.core.animateFloatAsState(
+        if (isSelected) 0.86f else 1f, motion.spring(stiffness = 900f), label = "sel",
+    )
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(vertical = 10.dp)
+            .trackPosition(pos)
+            .launcherGestures(
+                key = app.key.id to selecting,
+                onTap = {
+                    if (selecting) {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        vm.toggleSelected(app.key)
+                    } else {
+                        vm.launch(app.key, pos.rect())
+                    }
+                },
+                onLongPress = { off ->
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    if (selecting) {
+                        vm.toggleSelected(app.key)
+                    } else {
+                        val at = pos.pos + off
+                        vm.menu = MenuRequest(at, MenuTarget.DrawerApp(app.key))
+                        drag.start(DragSource.Drawer(app.key), AppItem(newId(), app = app.key), at)
+                    }
+                },
+                onDrag = { d ->
+                    if (!selecting) {
+                        drag.moveBy(d)
+                        if (drag.moved) vm.menu = null
+                    }
+                },
+                onDragEnd = { if (!selecting) endDrag() },
+                onPress = { pressed = it },
+            ),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(contentAlignment = Alignment.TopEnd) {
+            AppIcon(
+                app.key, settings.iconSizeDp.dp,
+                Modifier
+                    .pressScale(pressed)
+                    .graphicsLayer {
+                        scaleX = selScale
+                        scaleY = selScale
+                    },
+            )
+            if (selecting) {
+                Box(
+                    Modifier
+                        .size(22.dp)
+                        .clip(CircleShape)
+                        .background(if (isSelected) accent else Color.Black.copy(alpha = 0.45f))
+                        .border(1.5.dp, Color.White, CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (isSelected) Text("\u2713", color = Color.White, fontSize = 12.sp)
+                }
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        IconLabel(label, color = Color.White)
+    }
+}
+
+/** A folder opened from the home screen or dock. */
+@Composable
+fun FolderOverlay(
+    vm: LauncherViewModel,
+    state: LauncherState,
+    appsById: Map<String, AppInfo>,
+    folderId: String,
+    drag: DragState,
+    onDragEnd: () -> Unit,
+) {
+    val folder: FolderItem = LayoutOps.findFolder(state, folderId) ?: run {
+        LaunchedEffect(folderId) { vm.openFolderId = null }
+        return
+    }
+    val settings = state.settings
+    val accent = LocalAccent.current
+    val hiddenForDrag = drag.moved && drag.source is DragSource.Folder
+    val tint = folder.color?.let { Color(it) } ?: accent
+    val motion = LocalMotion.current
+    val appear = remember { androidx.compose.animation.core.Animatable(if (motion.enabled) 0f else 1f) }
+    LaunchedEffect(Unit) { appear.animateTo(1f, motion.spring(stiffness = 650f)) }
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .graphicsLayer { alpha = if (hiddenForDrag) 0f else appear.value.coerceIn(0f, 1f) }
+            .background(Color.Black.copy(alpha = 0.45f))
+            .pointerInput(Unit) { detectTapGestures { vm.openFolderId = null } },
+        contentAlignment = Alignment.Center,
+    ) {
+        Card(
+            modifier = Modifier
+                .padding(24.dp)
+                .widthIn(max = 420.dp)
+                .graphicsLayer {
+                    val k = 0.86f + 0.14f * appear.value
+                    scaleX = k
+                    scaleY = k
+                }
+                .pointerInput(Unit) { detectTapGestures { } },
+            shape = RoundedCornerShape(30.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = Color(
+                    androidx.core.graphics.ColorUtils.blendARGB(
+                        tint.toArgb(), 0xFF15151B.toInt(), 0.8f,
+                    ),
+                ).copy(alpha = 0.96f),
+            ),
+        ) {
+            Column(Modifier.padding(20.dp)) {
+                Row(Modifier.padding(bottom = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        folder.name,
+                        color = Color.White,
+                        fontSize = 20.sp,
+                        modifier = Modifier
+                            .weight(1f)
+                            .pointerInput(folder.id) { detectTapGestures { vm.renameFolderId = folder.id } }
+                            .padding(start = 4.dp),
+                    )
+                    Text(
+                        "+ Add apps",
+                        color = tint,
+                        fontSize = 13.sp,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(50))
+                            .background(tint.copy(alpha = 0.18f))
+                            .clickable { vm.folderPickerFor = folder.id }
+                            .padding(horizontal = 12.dp, vertical = 7.dp),
+                    )
+                }
+                val perRow = 4
+                folder.apps.chunked(perRow).forEach { row ->
+                    Row(Modifier.fillMaxWidth()) {
+                        row.forEach { key ->
+                            FolderAppCell(
+                                folderId = folder.id,
+                                app = key,
+                                label = labelFor(key, appsById[key.id]?.label),
+                                iconSize = (settings.iconSizeDp - 2).dp,
+                                vm = vm,
+                                drag = drag,
+                                onDragEnd = onDragEnd,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                        repeat(perRow - row.size) { Spacer(Modifier.weight(1f)) }
+                    }
+                }
+                Text(
+                    "Long-press an app to drag it out",
+                    color = Color.White.copy(alpha = 0.45f),
+                    fontSize = 11.sp,
+                    modifier = Modifier.padding(top = 10.dp, start = 4.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun FolderAppCell(
+    folderId: String,
+    app: com.libexil.androforge.data.AppKey,
+    label: String,
+    iconSize: androidx.compose.ui.unit.Dp,
+    vm: LauncherViewModel,
+    drag: DragState,
+    onDragEnd: () -> Unit,
+    modifier: Modifier,
+) {
+    val pos = remember { PosHolder() }
+    val haptic = LocalHapticFeedback.current
+    val locked = LocalSettings.current.lockLayout
+    val endDrag by rememberUpdatedState(onDragEnd)
+    Column(
+        modifier
+            .padding(vertical = 8.dp)
+            .trackPosition(pos)
+            .launcherGestures(
+                key = folderId + app.id,
+                onTap = {
+                    vm.launch(app, pos.rect())
+                    vm.openFolderId = null
+                },
+                onLongPress = { off ->
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    val at = pos.pos + off
+                    vm.menu = MenuRequest(at, MenuTarget.FolderApp(folderId, app))
+                    if (!locked) drag.start(DragSource.Folder(folderId, app), AppItem(newId(), app = app), at)
+                },
+                onDrag = { d ->
+                    drag.moveBy(d)
+                    if (drag.moved) vm.menu = null
+                },
+                onDragEnd = { endDrag() },
+            ),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        AppIcon(app, iconSize)
+        Spacer(Modifier.height(6.dp))
+        IconLabel(label, color = Color.White, sizeSp = 11)
+        Spacer(Modifier.width(1.dp))
+    }
+}
