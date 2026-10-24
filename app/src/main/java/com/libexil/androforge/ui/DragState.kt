@@ -177,3 +177,46 @@ fun Modifier.launcherGestures(
         }
     }
 }
+
+/**
+ * Long-press (then drag) detection that sees touches *before* the widget's own buttons do.
+ * Once the long press fires it takes over the gesture, so the button underneath never clicks.
+ */
+fun Modifier.longPressFirst(
+    key: Any?,
+    onLongPress: (Offset) -> Unit,
+    onDrag: (Offset) -> Unit = {},
+    onDragEnd: () -> Unit = {},
+): Modifier = pointerInput(key) {
+    awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false, pass = androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+        val slop = viewConfiguration.touchSlop
+        var last = down.position
+        val ended = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
+            while (true) {
+                val ev = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+                val ch = ev.changes.firstOrNull { it.id == down.id } ?: return@withTimeoutOrNull true
+                if (!ch.pressed) return@withTimeoutOrNull true
+                last = ch.position
+                if ((ch.position - down.position).getDistance() > slop) return@withTimeoutOrNull true
+            }
+            @Suppress("UNREACHABLE_CODE")
+            true
+        }
+        if (ended != null) return@awaitEachGesture // tap or scroll: leave it to the widget / pager
+        onLongPress(last)
+        try {
+            while (true) {
+                val ev = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+                val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
+                val delta = ch.position - last
+                last = ch.position
+                ch.consume()
+                if (!ch.pressed) break
+                if (delta != Offset.Zero) onDrag(delta)
+            }
+        } finally {
+            onDragEnd()
+        }
+    }
+}

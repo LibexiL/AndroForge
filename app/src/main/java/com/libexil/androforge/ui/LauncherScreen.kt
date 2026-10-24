@@ -753,7 +753,20 @@ private fun ForgeWidgetCell(item: ForgeWidgetItem, vm: LauncherViewModel, host: 
         Modifier
             .fillMaxSize()
             .trackPosition(pos)
-            .widgetDrag(item, pos, vm, drag, { locked }, haptic) { endDrag() },
+            .longPressFirst(
+                key = item.id,
+                onLongPress = { off ->
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    val at = pos.pos + off
+                    vm.menu = MenuRequest(at, MenuTarget.Home(current, inDock = false))
+                    if (!locked) drag.start(DragSource.Home(current.id), current, at, grab = off)
+                },
+                onDrag = { d ->
+                    drag.moveBy(d)
+                    if (drag.moved) vm.menu = null
+                },
+                onDragEnd = { endDrag() },
+            ),
     ) {
         ForgeWidget(item, LocalPalette.current, actions)
     }
