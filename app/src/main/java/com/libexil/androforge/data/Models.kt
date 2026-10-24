@@ -139,6 +139,7 @@ data class LauncherSettings(
     val animations: Boolean = true,
     val animScale: Float = 0.8f,
     val animBounce: Float = 0.3f,
+    val stretchScroll: Boolean = true,
     // Widgets under the dock (0 = off)
     val belowDockRows: Int = 0,
     val folderStyle: FolderStyle = FolderStyle.GRID,

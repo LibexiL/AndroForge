@@ -128,7 +128,9 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                 }
                 IconButton(onClick = { vm.settingsOpen = false }) { Icon(Icons.Default.Close, "Close") }
             }
-            LazyColumn(Modifier.fillMaxSize(), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 40.dp)) {
+            val stretch = if (s.stretchScroll) rememberStretch(top = true, bottom = true) else null
+            NoPlatformOverscroll(stretch != null) {
+            LazyColumn(Modifier.fillMaxSize().stretchy(stretch), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 40.dp)) {
                 if (!host.isDefaultLauncher()) {
                     item {
                         Banner(
@@ -163,6 +165,7 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
 
                 item { Section("Motion") }
                 item { SwitchRow("Animations", s.animations, "Turn off for instant, no-motion transitions") { v -> set { it.copy(animations = v) } } }
+                item { SwitchRow("Stretchy scrolling", s.stretchScroll, "Lists stretch and spring back when you reach the end") { v -> set { it.copy(stretchScroll = v) } } }
                 if (s.animations) {
                     item {
                         val presets = listOf(
@@ -483,6 +486,7 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                             "Long-press the home screen for widgets, pages and wallpaper. Drop an app onto another to make a folder.",
                     )
                 }
+            }
             }
         }
     }

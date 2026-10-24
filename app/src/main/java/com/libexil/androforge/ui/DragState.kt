@@ -94,10 +94,11 @@ class DragState {
                 DropTarget.HomeCell(page, x, y)
             }
         }
-        if (belowRows > 0 && belowRect != Rect.Zero && belowRect.contains(p)) {
+        val isWidget = item is com.libexil.androforge.data.WidgetItem || item is com.libexil.androforge.data.ForgeWidgetItem
+        // The layer under the dock only takes widgets; apps keep going to the dock / home grid.
+        if (isWidget && belowRows > 0 && belowRect != Rect.Zero && belowRect.contains(p)) {
             return cell(belowRect, belowRows, com.libexil.androforge.data.BELOW_DOCK)
         }
-        val isWidget = item is com.libexil.androforge.data.WidgetItem || item is com.libexil.androforge.data.ForgeWidgetItem
         if (!isWidget && dockRect != Rect.Zero && dockRect.inflate(12f).contains(p)) {
             dockSlots.forEachIndexed { i, r ->
                 if (p.x >= r.left && p.x <= r.right && abs(p.x - r.center.x) < r.width * 0.28f) {

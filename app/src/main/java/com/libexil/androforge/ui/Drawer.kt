@@ -42,6 +42,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
+import androidx.compose.animation.core.VisibilityThreshold
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -111,6 +112,7 @@ fun AppDrawer(
     val focusManager = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
     var query by remember { mutableStateOf("") }
+    var letter by remember { mutableStateOf<Char?>(null) }
     val gridState = rememberLazyGridState()
     val fullyOpen = drawer.progress >= 0.999f
     val closed = !drawer.isOpen
@@ -136,6 +138,7 @@ fun AppDrawer(
     LaunchedEffect(closed, dragging) {
         if (closed) vm.stopSelecting()
         if (closed && !dragging) {
+            letter = null
             query = ""
             keyboard?.hide()
             focusManager.clearFocus()
@@ -149,9 +152,12 @@ fun AppDrawer(
     val visible = remember(apps, state.hidden, labels) {
         apps.filter { it.key.id !in state.hidden }.sortedBy { labelOf(it).lowercase() }
     }
-    val filtered = remember(visible, query) {
+    LaunchedEffect(query) { if (query.isNotBlank()) letter = null }
+    val filtered = remember(visible, query, letter) {
         val q = query.trim()
-        if (q.isEmpty()) visible
+        val l = letter
+        if (q.isEmpty() && l != null) visible.filter { letterOf(labelOf(it)) == l }
+        else if (q.isEmpty()) visible
         else visible
             .filter { labelOf(it).contains(q, ignoreCase = true) || it.key.pkg.contains(q, ignoreCase = true) }
             .sortedBy { if (labelOf(it).startsWith(q, ignoreCase = true)) 0 else 1 }
@@ -258,26 +264,64 @@ fun AppDrawer(
         }
 
         val cols = settings.drawerColumns
-        val showSugg = query.isBlank() && suggestions.isNotEmpty()
-        val fastScroll = settings.drawerFastScroll && query.isBlank() && filtered.size > cols * 4
-        // First grid index for each letter (apps are sorted by label).
-        val letterIndex = remember(filtered, showSugg, suggestions.size) {
-            val offset = if (showSugg) suggestions.size + 2 else 0
-            val map = LinkedHashMap<Char, Int>()
-            filtered.forEachIndexed { i, a -> map.getOrPut(letterOf(labelOf(a))) { offset + i } }
-            map
-        }
+        val showSugg = query.isBlank() && letter == null && suggestions.isNotEmpty()
+        val fastScroll = settings.drawerFastScroll && query.isBlank() && visible.size > cols * 4
+        val available = remember(visible) { visible.map { letterOf(labelOf(it)) }.toSet() }
         val scope = rememberCoroutineScope()
+        val motion = LocalMotion.current
+        val stretch = if (settings.stretchScroll) rememberStretch(top = false, bottom = true) else null
+        fun itemAnim(m: Modifier, scope: androidx.compose.foundation.lazy.grid.LazyGridItemScope): Modifier = with(scope) {
+            m.animateItem(
+                fadeInSpec = motion.tween(160),
+                placementSpec = motion.spring(stiffness = 700f, visibilityThreshold = IntOffset.VisibilityThreshold),
+                fadeOutSpec = motion.tween(100),
+            )
+        }
+        LaunchedEffect(letter) { if (letter != null) gridState.scrollToItem(0) }
         Box(Modifier.fillMaxSize()) {
+        NoPlatformOverscroll(stretch != null) {
         LazyVerticalGrid(
             columns = GridCells.Fixed(cols),
             state = gridState,
             modifier = Modifier
                 .fillMaxSize()
                 .nestedScroll(connection)
+                .stretchy(stretch)
                 .padding(start = 8.dp, end = if (fastScroll) 26.dp else 8.dp),
         ) {
-            if (query.isBlank() && suggestions.isNotEmpty()) {
+            letter?.let { l ->
+                item(key = "letter-head", span = { GridItemSpan(maxLineSpan) }) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(start = 6.dp, top = 4.dp, bottom = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(
+                            Modifier
+                                .size(44.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(LocalAccent.current),
+                            contentAlignment = Alignment.Center,
+                        ) { Text(l.toString(), color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold) }
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(if (l == '#') "Numbers & symbols" else "Apps starting with $l", color = Color.White, fontSize = 15.sp)
+                            Text("${filtered.size} apps", color = Color.White.copy(alpha = 0.55f), fontSize = 12.sp)
+                        }
+                        Text(
+                            "Show all",
+                            color = LocalAccent.current,
+                            fontSize = 13.sp,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(50))
+                                .clickable { letter = null }
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                        )
+                    }
+                }
+            }
+            if (showSugg) {
                 item(key = "sugg-title", span = { GridItemSpan(maxLineSpan) }) {
                     SectionTitle("Suggested")
                 }
@@ -289,7 +333,7 @@ fun AppDrawer(
                 }
             }
             items(filtered, key = { "a:" + it.key.id }) { app ->
-                DrawerAppCell(app, labelOf(app), vm, drag, onDragEnd)
+                Box(itemAnim(Modifier, this)) { DrawerAppCell(app, labelOf(app), vm, drag, onDragEnd) }
             }
             if (query.isNotBlank()) {
                 item(key = "web", span = { GridItemSpan(maxLineSpan) }) {
@@ -317,26 +361,17 @@ fun AppDrawer(
             }
             item(key = "bottom-space", span = { GridItemSpan(maxLineSpan) }) { Spacer(Modifier.height(if (vm.selecting) 96.dp else 24.dp)) }
         }
+        }
         if (fastScroll) {
-            val current by remember(letterIndex) {
-                derivedStateOf {
-                    val first = gridState.firstVisibleItemIndex
-                    letterIndex.entries.lastOrNull { it.value <= first }?.key
-                }
-            }
             AlphaScroller(
-                available = letterIndex.keys,
-                current = current,
+                available = available,
+                current = letter,
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
                     .fillMaxHeight()
                     .padding(vertical = 8.dp),
-            ) { letter, animate ->
-                val idx = letterIndex[letter]
-                    ?: ALPHABET.drop(ALPHABET.indexOf(letter)).firstNotNullOfOrNull { letterIndex[it] }
-                    ?: return@AlphaScroller
-                scope.launch { if (animate) gridState.animateScrollToItem(idx) else gridState.scrollToItem(idx) }
-            }
+                onClear = { letter = null },
+            ) { l, _ -> if (l in available) letter = l }
         }
         }
     }
@@ -355,8 +390,10 @@ private fun AlphaScroller(
     available: Set<Char>,
     current: Char?,
     modifier: Modifier,
+    onClear: () -> Unit,
     onLetter: (Char, Boolean) -> Unit,
 ) {
+    val currentLetter by rememberUpdatedState(current)
     val accent = LocalAccent.current
     val haptic = LocalHapticFeedback.current
     val motion = LocalMotion.current
@@ -385,14 +422,21 @@ private fun AlphaScroller(
                                 onLetter(l, animate)
                             }
                         }
+                        val before = currentLetter
                         pick(down.position.y, animate = false)
+                        val startedOn = active
+                        var changed = false
                         while (true) {
                             val ev = awaitPointerEvent()
                             val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
                             if (!ch.pressed) break
                             ch.consume()
+                            val prev = active
                             pick(ch.position.y, animate = false)
+                            if (active != prev) changed = true
                         }
+                        // Tapping the letter that's already shown goes back to all apps.
+                        if (!changed && startedOn != null && startedOn == before) onClear()
                         active = null
                     }
                 },

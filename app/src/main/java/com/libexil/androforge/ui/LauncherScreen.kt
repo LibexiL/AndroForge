@@ -90,6 +90,9 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -247,7 +250,7 @@ fun LauncherScreen(vm: LauncherViewModel, host: LauncherHost) {
 
                 // ---------------- home layer
                 val total = remember { floatArrayOf(0f, 0f) } // [0] = distance, [1] = mode
-                Column(
+                Box(
                     Modifier
                         .fillMaxSize()
                         .graphicsLayer {
@@ -279,55 +282,73 @@ fun LauncherScreen(vm: LauncherViewModel, host: LauncherHost) {
                                     perform(settings.swipeUp)
                                 }
                             },
-                        )
-                        .statusBarsPadding()
-                        .navigationBarsPadding(),
+                        ),
                 ) {
-                    HomePager(
-                        vm = vm,
-                        state = state,
-                        appsById = appsById,
-                        drag = drag,
-                        pagerState = pagerState,
-                        host = host,
-                        onDragEnd = onDragEnd,
-                        onDoubleTap = { perform(settings.doubleTap) },
-                        modifier = Modifier.weight(1f),
-                    )
-                    if (settings.pageIndicator && state.pageCount > 1) {
-                        PageIndicator(pagerState, accent)
-                    }
-                    if (settings.dockEnabled) {
-                        Dock(vm = vm, state = state, appsById = appsById, drag = drag, onDragEnd = onDragEnd)
-                    } else {
-                        drag.dockRect = Rect.Zero
-                        drag.dockSlots = emptyList()
-                        Spacer(Modifier.height(12.dp))
-                    }
+                    // Widgets that live UNDER the dock, down to the very bottom edge of the screen.
                     val belowRows = settings.belowDockRows
                     SideEffect { drag.belowRows = belowRows }
                     if (belowRows > 0) {
-                        val rowH = with(density) { vm.cellHeightPx.toDp() }.coerceIn(56.dp, 140.dp)
+                        val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+                        val rowH = with(density) { vm.cellHeightPx.toDp() }.coerceIn(48.dp, 160.dp)
                         Box(
                             Modifier
+                                .align(Alignment.BottomCenter)
                                 .fillMaxWidth()
-                                .height(rowH * belowRows)
+                                .height(rowH * belowRows + navBottom)
                                 .padding(horizontal = 6.dp)
                                 .onGloballyPositioned { drag.belowRect = it.boundsInRoot() },
                         ) {
-                            if (drag.active && state.items.none { it.page == BELOW_DOCK }) {
+                            val showDrop = drag.active && (drag.item is WidgetItem || drag.item is ForgeWidgetItem) &&
+                                state.items.none { it.page == BELOW_DOCK }
+                            if (showDrop) {
                                 Box(
                                     Modifier
                                         .fillMaxSize()
                                         .padding(6.dp)
-                                        .border(1.5.dp, accent.copy(alpha = 0.5f), RoundedCornerShape(20.dp)),
-                                    contentAlignment = Alignment.Center,
-                                ) { Text("Drop widgets here", color = Color.White.copy(alpha = 0.7f), fontSize = 13.sp) }
+                                        .border(1.5.dp, accent.copy(alpha = 0.6f), RoundedCornerShape(20.dp)),
+                                    contentAlignment = Alignment.TopCenter,
+                                ) {
+                                    Text(
+                                        "Drop a widget here to put it under the dock",
+                                        color = Color.White.copy(alpha = 0.8f),
+                                        fontSize = 13.sp,
+                                        modifier = Modifier.padding(top = 10.dp),
+                                    )
+                                }
                             }
                             HomePage(BELOW_DOCK, belowRows, vm, state, appsById, drag, host, onDragEnd, {}, publishCells = false)
                         }
                     } else {
-                        drag.belowRect = Rect.Zero
+                        SideEffect { drag.belowRect = Rect.Zero }
+                    }
+
+                    Column(
+                        Modifier
+                            .fillMaxSize()
+                            .statusBarsPadding()
+                            .navigationBarsPadding(),
+                    ) {
+                        HomePager(
+                            vm = vm,
+                            state = state,
+                            appsById = appsById,
+                            drag = drag,
+                            pagerState = pagerState,
+                            host = host,
+                            onDragEnd = onDragEnd,
+                            onDoubleTap = { perform(settings.doubleTap) },
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (settings.pageIndicator && state.pageCount > 1) {
+                            PageIndicator(pagerState, accent)
+                        }
+                        if (settings.dockEnabled) {
+                            Dock(vm = vm, state = state, appsById = appsById, drag = drag, onDragEnd = onDragEnd)
+                        } else {
+                            drag.dockRect = Rect.Zero
+                            drag.dockSlots = emptyList()
+                            Spacer(Modifier.height(12.dp))
+                        }
                     }
                 }
 
