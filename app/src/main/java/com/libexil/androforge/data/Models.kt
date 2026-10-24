@@ -106,7 +106,10 @@ enum class BarMode(val label: String) {
 enum class IslandIdle(val label: String) { PILL("Pill"), DOT("Camera ring"), HIDDEN("Hidden") }
 
 @Serializable
-enum class IslandColor(val label: String) { BLACK("Black"), PALETTE("Palette") }
+enum class IslandColor(val label: String) { BLACK("Black"), PALETTE("Palette"), GRADIENT("Gradient") }
+
+@Serializable
+enum class IslandTap(val label: String) { GLANCE("Glance panel"), SHADE("Notification shade") }
 
 @Serializable
 enum class BarBackground(val label: String) { BLACK("Black"), PALETTE("Palette"), GRADIENT("Gradient") }
@@ -175,6 +178,14 @@ data class LauncherSettings(
     val islandNotifications: Boolean = true,
     val islandHideLandscape: Boolean = true,
     val islandGlow: Boolean = true,
+    val islandCalls: Boolean = true,
+    val islandLiveActivities: Boolean = true,
+    val islandDeviceAlerts: Boolean = true,
+    val islandPeekSeconds: Int = 5,
+    val islandPeekActions: Boolean = true,
+    val islandTapAction: IslandTap = IslandTap.GLANCE,
+    val islandExcludedApps: Set<String> = emptySet(),
+    val islandBubble: Boolean = true,
     val barBackground: BarBackground = BarBackground.BLACK,
     val barText: ColorRole = ColorRole.FOREGROUND,
     val barSeconds: Boolean = false,

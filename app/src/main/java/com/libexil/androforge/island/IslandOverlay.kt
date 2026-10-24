@@ -29,6 +29,7 @@ import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.libexil.androforge.LauncherApp
 import com.libexil.androforge.data.BarMode
 import com.libexil.androforge.data.LauncherSettings
+import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -80,6 +81,8 @@ class IslandGeometry {
     val cutoutWidthPx = mutableIntStateOf(0)
     val collapseTick = mutableIntStateOf(0)
     val visible = mutableStateOf(true)
+    /** True while typing an inline reply: the island window must take keyboard focus. */
+    val wantsFocus = mutableStateOf(false)
 }
 
 /**
@@ -108,6 +111,11 @@ class IslandOverlay(private val service: AccessibilityService) {
                     settings = it
                     apply()
                 }
+        }
+        scope.launch {
+            snapshotFlow { geo.wantsFocus.value }.collect {
+                islandRoot?.let { root -> runCatching { wm.updateViewLayout(root, islandParams()) } }
+            }
         }
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(c: Context, i: Intent) {
@@ -195,10 +203,11 @@ class IslandOverlay(private val service: AccessibilityService) {
         }
     }
 
-    private fun baseParams(w: Int, h: Int, touchable: Boolean) = WindowManager.LayoutParams(
+    private fun baseParams(w: Int, h: Int, touchable: Boolean, focusable: Boolean = false) = WindowManager.LayoutParams(
         w, h,
         WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+        (if (focusable) 0 else WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE) or
+            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
             WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
             (if (touchable) WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH else WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE),
@@ -216,8 +225,12 @@ class IslandOverlay(private val service: AccessibilityService) {
         WindowManager.LayoutParams.WRAP_CONTENT,
         WindowManager.LayoutParams.WRAP_CONTENT,
         touchable = true,
+        focusable = geo.wantsFocus.value,
     ).apply {
         gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+        if (geo.wantsFocus.value) {
+            softInputMode = WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE or WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
+        }
         val density = service.resources.displayMetrics.density
         val center = geo.cutoutCenterPx.intValue
         val follow = settings.islandFollowCamera && center >= 0

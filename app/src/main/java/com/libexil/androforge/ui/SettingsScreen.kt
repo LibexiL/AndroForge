@@ -68,6 +68,7 @@ import com.libexil.androforge.data.ColorRole
 import com.libexil.androforge.data.ForgePalette
 import com.libexil.androforge.data.IslandColor
 import com.libexil.androforge.data.IslandIdle
+import com.libexil.androforge.data.IslandTap
 import com.libexil.androforge.data.PaletteSource
 import com.libexil.androforge.data.Palettes
 import com.libexil.androforge.live.AudioViz
@@ -98,6 +99,17 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
     val permissionTick by PermissionBus.version.collectAsState()
     val mediaAccess = remember(permissionTick) { MediaHub.accessGranted(context) }
     val audioOk = remember(permissionTick) { AudioViz.hasPermission() }
+    val btOk = remember(permissionTick) {
+        android.os.Build.VERSION.SDK_INT < 31 ||
+            androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.BLUETOOTH_CONNECT) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+    }
+    var excludeOpen by remember { androidx.compose.runtime.mutableStateOf(false) }
+    if (excludeOpen) {
+        ExcludeAppsDialog(apps, s.islandExcludedApps, onToggle = { pkg ->
+            set { it.copy(islandExcludedApps = if (pkg in it.islandExcludedApps) it.islandExcludedApps - pkg else it.islandExcludedApps + pkg) }
+        }) { excludeOpen = false }
+    }
 
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(
@@ -319,8 +331,29 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                     item { IntSlider("Move down", s.islandOffsetY, -12..40, suffix = "dp") { v -> set { it.copy(islandOffsetY = v) } } }
                     item { SwitchRow("Music", s.islandMusic, "Album art + visualizer; tap to expand the player") { v -> set { it.copy(islandMusic = v) } } }
                     item { SwitchRow("Visualizer in island", s.islandVisualizer) { v -> set { it.copy(islandVisualizer = v) } } }
-                    item { SwitchRow("Charging animation", s.islandCharging) { v -> set { it.copy(islandCharging = v) } } }
-                    item { SwitchRow("Notification peeks", s.islandNotifications, "Tap a peek to open it, swipe up to dismiss") { v -> set { it.copy(islandNotifications = v) } } }
+                    item { SwitchRow("Charging & low battery", s.islandCharging) { v -> set { it.copy(islandCharging = v) } } }
+                    item { SwitchRow("Calls & alarms", s.islandCalls, "Answer or decline from the island; call timer while you talk") { v -> set { it.copy(islandCalls = v) } } }
+                    item { SwitchRow("Live activities", s.islandLiveActivities, "Timers, stopwatch, recording, downloads, navigation") { v -> set { it.copy(islandLiveActivities = v) } } }
+                    item { SwitchRow("Device alerts", s.islandDeviceAlerts, "Headphones connected, silent / vibrate / ring") { v -> set { it.copy(islandDeviceAlerts = v) } } }
+                    if (s.islandDeviceAlerts && android.os.Build.VERSION.SDK_INT >= 31 && !btOk) {
+                        item {
+                            Banner(
+                                "Show earbud battery",
+                                "Allow \u201cNearby devices\u201d so the island can show your Bluetooth headphones' battery.",
+                                "Allow",
+                            ) { host.requestPermission(android.Manifest.permission.BLUETOOTH_CONNECT) }
+                        }
+                    }
+                    item { SwitchRow("Second bubble", s.islandBubble, "A small extra bubble when two things run at once") { v -> set { it.copy(islandBubble = v) } } }
+                    item { Choice("Tap the idle island", IslandTap.entries, s.islandTapAction, { it.label }) { v -> set { it.copy(islandTapAction = v) } } }
+                    item { Section("Smart alerts") }
+                    item { SwitchRow("Notification pop-ups", s.islandNotifications, "Tap to open, swipe up or \u2715 to dismiss") { v -> set { it.copy(islandNotifications = v) } } }
+                    if (s.islandNotifications) {
+                        item { SwitchRow("Action buttons", s.islandPeekActions, "Reply, mark as read, mute\u2026 right from the pop-up") { v -> set { it.copy(islandPeekActions = v) } } }
+                        item { IntSlider("Show for", s.islandPeekSeconds, 2..12, suffix = " s") { v -> set { it.copy(islandPeekSeconds = v) } } }
+                        item { ClickRow("Apps that don't pop up", if (s.islandExcludedApps.isEmpty()) "None" else "${s.islandExcludedApps.size} apps") { excludeOpen = true } }
+                        item { Hint("Getting two pop-ups? Turn off \u201cPop on screen\u201d (or floating notifications) for those apps in Android's notification settings.") }
+                    }
                     item { SwitchRow("Palette glow", s.islandGlow) { v -> set { it.copy(islandGlow = v) } } }
                     item { SwitchRow("Hide in landscape", s.islandHideLandscape, "Keeps games and videos clear") { v -> set { it.copy(islandHideLandscape = v) } } }
                 }
@@ -434,6 +467,37 @@ private fun PaletteRow(pal: Pal, selected: Boolean, onDelete: (() -> Unit)? = nu
         }
         if (onDelete != null) {
             IconButton(onClick = onDelete) { Icon(Icons.Default.Close, "Delete theme") }
+        }
+    }
+}
+
+@Composable
+private fun ExcludeAppsDialog(apps: List<AppInfo>, excluded: Set<String>, onToggle: (String) -> Unit, onClose: () -> Unit) {
+    val byPkg = remember(apps) { apps.distinctBy { it.key.pkg } }
+    androidx.compose.ui.window.Dialog(onDismissRequest = onClose) {
+        androidx.compose.material3.Card(shape = androidx.compose.foundation.shape.RoundedCornerShape(28.dp)) {
+            Column(Modifier.padding(vertical = 16.dp)) {
+                Text("Don't pop up for", fontSize = 20.sp, modifier = Modifier.padding(horizontal = 20.dp))
+                LazyColumn(Modifier.heightIn(max = 480.dp)) {
+                    items(byPkg.size) { i ->
+                        val app = byPkg[i]
+                        val on = app.key.pkg in excluded
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable { onToggle(app.key.pkg) }
+                                .padding(horizontal = 16.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            AppIcon(app.key, 36.dp)
+                            Spacer(Modifier.width(12.dp))
+                            Text(app.label, modifier = Modifier.weight(1f))
+                            androidx.compose.material3.Checkbox(checked = on, onCheckedChange = { onToggle(app.key.pkg) })
+                        }
+                    }
+                }
+                TextButton(onClick = onClose, modifier = Modifier.align(Alignment.End).padding(end = 12.dp)) { Text("Done") }
+            }
         }
     }
 }
