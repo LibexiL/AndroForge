@@ -112,7 +112,7 @@ fun StatusBarContent(geo: IslandGeometry) {
                 if (s.shadeMode == com.libexil.androforge.data.ShadeMode.FORGE) {
                     Modifier.pointerInput(Unit) {
                         var total = 0f
-                        androidx.compose.foundation.gestures.detectVerticalDragGestures(
+                        detectVerticalDragGestures(
                             onDragStart = { total = 0f },
                             onVerticalDrag = { ch, d ->
                                 total += d
