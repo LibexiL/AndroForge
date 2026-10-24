@@ -42,6 +42,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.animation.core.VisibilityThreshold
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -291,6 +292,19 @@ fun AppDrawer(
             )
         }
         LaunchedEffect(letter) { if (letter != null) gridState.scrollToItem(0) }
+        // While scrubbing the A-Z bar the apps stretch and travel with your finger.
+        var scrub by remember { mutableStateOf<Float?>(null) }
+        val kick = remember { androidx.compose.animation.core.Animatable(0f) }
+        val follow = remember { androidx.compose.animation.core.Animatable(0f) }
+        LaunchedEffect(scrub) {
+            val f = scrub
+            val target = if (f == null) 0f else {
+                val n = ALPHABET.size
+                (f * n - (f * n).toInt().coerceAtMost(n - 1)) - 0.5f
+            }
+            follow.animateTo(target, motion.spring(stiffness = 900f))
+        }
+        val travelPx = with(LocalDensity.current) { 70.dp.toPx() }
         Box(Modifier.fillMaxSize()) {
         NoPlatformOverscroll(stretch != null) {
         LazyVerticalGrid(
@@ -309,6 +323,13 @@ fun AppDrawer(
                 }
                 .nestedScroll(connection)
                 .stretchy(stretch)
+                .graphicsLayer {
+                    val k = kick.value
+                    val w = follow.value
+                    translationY = k * travelPx + w * travelPx * 0.35f
+                    scaleY = 1f + kotlin.math.abs(k) * 0.12f + kotlin.math.abs(w) * 0.05f
+                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, if (k + w >= 0f) 0f else 1f)
+                }
                 .padding(start = 8.dp, end = if (fastScroll) 26.dp else 8.dp),
         ) {
             letter?.let { l ->
@@ -393,7 +414,20 @@ fun AppDrawer(
                     .fillMaxHeight()
                     .padding(vertical = 8.dp),
                 onClear = { letter = null },
-            ) { l, _ -> if (l in available) letter = l }
+                onScrub = { f -> scrub = f },
+            ) { l, _ ->
+                if (l in available) {
+                    val old = letter
+                    letter = l
+                    if (old != null && old != l) {
+                        val dir = if (ALPHABET.indexOf(l) > ALPHABET.indexOf(old)) 1f else -1f
+                        scope.launch {
+                            kick.snapTo(dir)
+                            kick.animateTo(0f, motion.spring(stiffness = 380f))
+                        }
+                    }
+                }
+            }
         }
         }
     }
@@ -406,13 +440,14 @@ private fun letterOf(label: String): Char {
     return if (c in 'A'..'Z') c else '#'
 }
 
-/** The A-Z strip on the side of the drawer: drag along it to fly through your apps. */
+/** The A-Z strip on the side of the drawer: letters bulge out under your finger like a magnifier. */
 @Composable
 private fun AlphaScroller(
     available: Set<Char>,
     current: Char?,
     modifier: Modifier,
     onClear: () -> Unit,
+    onScrub: (Float?) -> Unit,
     onLetter: (Char, Boolean) -> Unit,
 ) {
     val currentLetter by rememberUpdatedState(current)
@@ -420,32 +455,39 @@ private fun AlphaScroller(
     val haptic = LocalHapticFeedback.current
     val motion = LocalMotion.current
     var active by remember { mutableStateOf<Char?>(null) }
-    var fingerY by remember { mutableStateOf(0f) }
+    val finger = remember { androidx.compose.animation.core.Animatable(0f) }
+    val zoom = remember { androidx.compose.animation.core.Animatable(0f) }
+    val scope = rememberCoroutineScope()
     val density = LocalDensity.current
     val letters = ALPHABET
+    val heightPx = remember { floatArrayOf(1f) }
+    val bulgePx = with(density) { 36.dp.toPx() }
     Box(modifier.width(24.dp)) {
         Column(
             Modifier
                 .fillMaxHeight()
                 .width(24.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(if (active != null) Color.White.copy(alpha = 0.08f) else Color.Transparent)
+                .onSizeChanged { heightPx[0] = it.height.toFloat().coerceAtLeast(1f) }
                 .pointerInput(available) {
                     awaitEachGesture {
                         val down = awaitFirstDown()
                         down.consume()
-                        fun pick(y: Float, animate: Boolean) {
-                            fingerY = y.coerceIn(0f, size.height.toFloat())
-                            val i = (fingerY / size.height * letters.size).toInt().coerceIn(0, letters.size - 1)
+                        scope.launch { zoom.animateTo(1f, motion.spring(stiffness = 700f)) }
+                        fun pick(y: Float) {
+                            val yy = y.coerceIn(0f, size.height.toFloat())
+                            scope.launch { finger.snapTo(yy) }
+                            val frac = yy / size.height
+                            onScrub(frac)
+                            val i = (frac * letters.size).toInt().coerceIn(0, letters.size - 1)
                             val l = letters[i]
                             if (l != active) {
                                 active = l
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                onLetter(l, animate)
+                                onLetter(l, false)
                             }
                         }
                         val before = currentLetter
-                        pick(down.position.y, animate = false)
+                        pick(down.position.y)
                         val startedOn = active
                         var changed = false
                         while (true) {
@@ -454,30 +496,48 @@ private fun AlphaScroller(
                             if (!ch.pressed) break
                             ch.consume()
                             val prev = active
-                            pick(ch.position.y, animate = false)
+                            pick(ch.position.y)
                             if (active != prev) changed = true
                         }
                         // Tapping the letter that's already shown goes back to all apps.
                         if (!changed && startedOn != null && startedOn == before) onClear()
                         active = null
+                        onScrub(null)
+                        scope.launch { zoom.animateTo(0f, motion.spring(stiffness = 500f)) }
                     }
                 },
-            verticalArrangement = Arrangement.SpaceEvenly,
-            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            letters.forEach { l ->
+            letters.forEachIndexed { idx, l ->
                 val on = l in available
                 val highlight = l == (active ?: current)
-                Text(
-                    l.toString(),
-                    fontSize = 10.5.sp,
-                    fontWeight = if (highlight) FontWeight.Bold else FontWeight.Normal,
-                    color = when {
-                        highlight -> accent
-                        on -> Color.White.copy(alpha = 0.8f)
-                        else -> Color.White.copy(alpha = 0.25f)
-                    },
-                )
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .graphicsLayer {
+                            // Fisheye: letters near the finger grow and slide out from the edge.
+                            val h = heightPx[0]
+                            val cy = (idx + 0.5f) * h / letters.size
+                            val d = (cy - finger.value) / (h * 0.11f)
+                            val f = kotlin.math.exp(-d * d) * zoom.value
+                            scaleX = 1f + 1.25f * f
+                            scaleY = 1f + 1.25f * f
+                            translationX = -bulgePx * f
+                            alpha = 0.55f + 0.45f * maxOf(f, if (on) 0.6f else 0f)
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        l.toString(),
+                        fontSize = 10.5.sp,
+                        fontWeight = if (highlight) FontWeight.Bold else FontWeight.Normal,
+                        color = when {
+                            highlight -> accent
+                            on -> Color.White
+                            else -> Color.White.copy(alpha = 0.35f)
+                        },
+                    )
+                }
             }
         }
         // Big letter bubble beside your finger.
@@ -486,7 +546,7 @@ private fun AlphaScroller(
             enter = androidx.compose.animation.scaleIn(motion.spring(stiffness = 900f)) + androidx.compose.animation.fadeIn(motion.tween(90)),
             exit = androidx.compose.animation.scaleOut(motion.tween(120)) + androidx.compose.animation.fadeOut(motion.tween(120)),
             modifier = Modifier.offset {
-                IntOffset(with(density) { (-76).dp.roundToPx() }, (fingerY - with(density) { 30.dp.toPx() }).roundToInt())
+                IntOffset(with(density) { (-104).dp.roundToPx() }, (finger.value - with(density) { 30.dp.toPx() }).roundToInt())
             },
         ) {
             var shown by remember { mutableStateOf(' ') }
@@ -499,240 +559,5 @@ private fun AlphaScroller(
                 contentAlignment = Alignment.Center,
             ) { Text(shown.toString(), color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold) }
         }
-    }
-}
-
-@Composable
-private fun SectionTitle(text: String) {
-    Text(
-        text.uppercase(),
-        color = Color.White.copy(alpha = 0.55f),
-        fontSize = 11.sp,
-        letterSpacing = 1.5.sp,
-        modifier = Modifier.padding(start = 10.dp, top = 4.dp, bottom = 8.dp),
-    )
-}
-
-@Composable
-private fun DrawerAppCell(app: AppInfo, label: String, vm: LauncherViewModel, drag: DragState, onDragEnd: () -> Unit) {
-    val settings = LocalSettings.current
-    val pos = remember { PosHolder() }
-    val haptic = LocalHapticFeedback.current
-    val endDrag by rememberUpdatedState(onDragEnd)
-    var pressed by remember { mutableStateOf(false) }
-    val selecting = vm.selecting
-    val isSelected = selecting && app.key in vm.selected
-    val accent = LocalAccent.current
-    val motion = LocalMotion.current
-    val selScale by androidx.compose.animation.core.animateFloatAsState(
-        if (isSelected) 0.86f else 1f, motion.spring(stiffness = 900f), label = "sel",
-    )
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .padding(vertical = 10.dp)
-            .trackPosition(pos)
-            .launcherGestures(
-                key = app.key.id to selecting,
-                onTap = {
-                    if (selecting) {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        vm.toggleSelected(app.key)
-                    } else {
-                        vm.launch(app.key, pos.rect())
-                    }
-                },
-                onLongPress = { off ->
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    if (selecting) {
-                        vm.toggleSelected(app.key)
-                    } else {
-                        val at = pos.pos + off
-                        vm.menu = MenuRequest(at, MenuTarget.DrawerApp(app.key))
-                        drag.start(DragSource.Drawer(app.key), AppItem(newId(), app = app.key), at)
-                    }
-                },
-                onDrag = { d ->
-                    if (!selecting) {
-                        drag.moveBy(d)
-                        if (drag.moved) vm.menu = null
-                    }
-                },
-                onDragEnd = { if (!selecting) endDrag() },
-                onPress = { pressed = it },
-            ),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Box(contentAlignment = Alignment.TopEnd) {
-            AppIcon(
-                app.key, settings.iconSizeDp.dp,
-                Modifier
-                    .pressScale(pressed)
-                    .graphicsLayer {
-                        scaleX = selScale
-                        scaleY = selScale
-                    },
-            )
-            if (selecting) {
-                Box(
-                    Modifier
-                        .size(22.dp)
-                        .clip(CircleShape)
-                        .background(if (isSelected) accent else Color.Black.copy(alpha = 0.45f))
-                        .border(1.5.dp, Color.White, CircleShape),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    if (isSelected) Text("\u2713", color = Color.White, fontSize = 12.sp)
-                }
-            }
-        }
-        Spacer(Modifier.height(6.dp))
-        IconLabel(label, color = Color.White)
-    }
-}
-
-/** A folder opened from the home screen or dock. */
-@Composable
-fun FolderOverlay(
-    vm: LauncherViewModel,
-    state: LauncherState,
-    appsById: Map<String, AppInfo>,
-    folderId: String,
-    drag: DragState,
-    onDragEnd: () -> Unit,
-) {
-    val folder: FolderItem = LayoutOps.findFolder(state, folderId) ?: run {
-        LaunchedEffect(folderId) { vm.openFolderId = null }
-        return
-    }
-    val settings = state.settings
-    val accent = LocalAccent.current
-    val hiddenForDrag = drag.moved && drag.source is DragSource.Folder
-    val tint = folder.color?.let { Color(it) } ?: accent
-    val motion = LocalMotion.current
-    val appear = remember { androidx.compose.animation.core.Animatable(if (motion.enabled) 0f else 1f) }
-    LaunchedEffect(Unit) { appear.animateTo(1f, motion.spring(stiffness = 650f)) }
-
-    Box(
-        Modifier
-            .fillMaxSize()
-            .graphicsLayer { alpha = if (hiddenForDrag) 0f else appear.value.coerceIn(0f, 1f) }
-            .background(Color.Black.copy(alpha = 0.45f))
-            .pointerInput(Unit) { detectTapGestures { vm.openFolderId = null } },
-        contentAlignment = Alignment.Center,
-    ) {
-        Card(
-            modifier = Modifier
-                .padding(24.dp)
-                .widthIn(max = 420.dp)
-                .graphicsLayer {
-                    val k = 0.86f + 0.14f * appear.value
-                    scaleX = k
-                    scaleY = k
-                }
-                .pointerInput(Unit) { detectTapGestures { } },
-            shape = RoundedCornerShape(30.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = Color(
-                    androidx.core.graphics.ColorUtils.blendARGB(
-                        tint.toArgb(), 0xFF15151B.toInt(), 0.8f,
-                    ),
-                ).copy(alpha = 0.96f),
-            ),
-        ) {
-            Column(Modifier.padding(20.dp)) {
-                Row(Modifier.padding(bottom = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        folder.name,
-                        color = Color.White,
-                        fontSize = 20.sp,
-                        modifier = Modifier
-                            .weight(1f)
-                            .pointerInput(folder.id) { detectTapGestures { vm.renameFolderId = folder.id } }
-                            .padding(start = 4.dp),
-                    )
-                    Text(
-                        "+ Add apps",
-                        color = tint,
-                        fontSize = 13.sp,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(50))
-                            .background(tint.copy(alpha = 0.18f))
-                            .clickable { vm.folderPickerFor = folder.id }
-                            .padding(horizontal = 12.dp, vertical = 7.dp),
-                    )
-                }
-                val perRow = 4
-                folder.apps.chunked(perRow).forEach { row ->
-                    Row(Modifier.fillMaxWidth()) {
-                        row.forEach { key ->
-                            FolderAppCell(
-                                folderId = folder.id,
-                                app = key,
-                                label = labelFor(key, appsById[key.id]?.label),
-                                iconSize = (settings.iconSizeDp - 2).dp,
-                                vm = vm,
-                                drag = drag,
-                                onDragEnd = onDragEnd,
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
-                        repeat(perRow - row.size) { Spacer(Modifier.weight(1f)) }
-                    }
-                }
-                Text(
-                    "Long-press an app to drag it out",
-                    color = Color.White.copy(alpha = 0.45f),
-                    fontSize = 11.sp,
-                    modifier = Modifier.padding(top = 10.dp, start = 4.dp),
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun FolderAppCell(
-    folderId: String,
-    app: com.libexil.androforge.data.AppKey,
-    label: String,
-    iconSize: androidx.compose.ui.unit.Dp,
-    vm: LauncherViewModel,
-    drag: DragState,
-    onDragEnd: () -> Unit,
-    modifier: Modifier,
-) {
-    val pos = remember { PosHolder() }
-    val haptic = LocalHapticFeedback.current
-    val locked = LocalSettings.current.lockLayout
-    val endDrag by rememberUpdatedState(onDragEnd)
-    Column(
-        modifier
-            .padding(vertical = 8.dp)
-            .trackPosition(pos)
-            .launcherGestures(
-                key = folderId + app.id,
-                onTap = {
-                    vm.launch(app, pos.rect())
-                    vm.openFolderId = null
-                },
-                onLongPress = { off ->
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    val at = pos.pos + off
-                    vm.menu = MenuRequest(at, MenuTarget.FolderApp(folderId, app))
-                    if (!locked) drag.start(DragSource.Folder(folderId, app), AppItem(newId(), app = app), at)
-                },
-                onDrag = { d ->
-                    drag.moveBy(d)
-                    if (drag.moved) vm.menu = null
-                },
-                onDragEnd = { endDrag() },
-            ),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        AppIcon(app, iconSize)
-        Spacer(Modifier.height(6.dp))
-        IconLabel(label, color = Color.White, sizeSp = 11)
-        Spacer(Modifier.width(1.dp))
     }
 }

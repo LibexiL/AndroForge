@@ -190,6 +190,7 @@ fun ContextMenu(req: MenuRequest, vm: LauncherViewModel, host: LauncherHost, sta
                     vm.folderPickerFor = ""
                 })
                 add(MenuEntry("Wallpaper", Icons.Default.Face) { host.pickWallpaper() })
+                add(MenuEntry("Match wallpaper colors", Icons.Default.Refresh) { vm.matchWallpaper() })
                 add(MenuEntry("Launcher settings", Icons.Default.Settings) { vm.settingsOpen = true })
                 add(MenuEntry("Add page", Icons.Default.Add) { vm.addPage() })
                 if (state.pageCount > 1 && target.page >= 0) add(MenuEntry("Remove this page", Icons.Default.Delete) { vm.removePage(target.page, host) })

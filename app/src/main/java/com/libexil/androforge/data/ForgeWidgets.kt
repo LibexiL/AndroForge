@@ -11,7 +11,18 @@ enum class ForgeKind(val label: String, val title: String, val w: Int, val h: In
     VISUALIZER("Music visualizer", "", 4, 1, "cava-style bars, LED blocks, waves or a radial ring"),
     WEATHER("Weather", "WEATHER", 4, 2, "Animated icons and a forecast"),
     SYSTEM("System gauges", "SYSTEM", 4, 2, "Battery, memory and storage gauges"),
+    CALENDAR("Calendar", "", 4, 3, "Month view you can page through; today glows"),
+    COUNTDOWN("Countdown", "COUNTDOWN", 4, 2, "Days, hours, minutes and seconds to any date"),
+    TODO("To-do", "TO-DO", 4, 2, "A checklist on your home screen - tap to tick"),
+    SHELF("App shelf", "", 4, 1, "Apps you pick, like your games, that lift and glow"),
+    NETWORK("Network speed", "NETWORK", 4, 2, "Live download and upload graph"),
+    GREETING("Greeting", "", 4, 1, "Good morning / afternoon / evening with the date"),
+    SEARCH("Search bar", "", 4, 1, "Tap to search your apps or the web"),
+    BATTERY("Battery", "BATTERY", 2, 2, "Big charge ring with time-to-full while charging"),
 }
+
+@Serializable
+data class TodoItem(val text: String, val done: Boolean = false)
 
 @Serializable
 enum class PanelBackground(val label: String) {
@@ -83,6 +94,21 @@ data class ForgeOptions(
     val forecastDays: Int = 3,
     // system
     val gaugeStyle: GaugeStyle = GaugeStyle.ARCS,
+    // calendar
+    val mondayFirst: Boolean = false,
+    // countdown (0 = next New Year)
+    val countdownTitle: String = "New Year",
+    val countdownTarget: Long = 0L,
+    // to-do
+    val todos: List<TodoItem> = listOf(TodoItem("Long-press \u2192 Customize to edit this list")),
+    val hideDone: Boolean = false,
+    // app shelf
+    val shelfApps: List<AppKey> = emptyList(),
+    val shelfLabels: Boolean = true,
+    // greeting
+    val greetingName: String = "",
+    // search
+    val searchHint: String = "Search apps & the web",
 )
 
 @Serializable
@@ -102,6 +128,10 @@ data class ForgeWidgetItem(
 fun defaultLook(kind: ForgeKind): PanelLook = when (kind) {
     ForgeKind.CLOCK -> PanelLook(background = PanelBackground.NONE, border = false, showTitle = false)
     ForgeKind.VISUALIZER -> PanelLook(background = PanelBackground.NONE, border = false, showTitle = false)
+    ForgeKind.GREETING -> PanelLook(background = PanelBackground.NONE, border = false, showTitle = false)
+    ForgeKind.SHELF -> PanelLook(background = PanelBackground.FROSTED, showTitle = false, radius = 26)
+    ForgeKind.SEARCH -> PanelLook(background = PanelBackground.FROSTED, showTitle = false, radius = 40)
+    ForgeKind.CALENDAR -> PanelLook(showTitle = false)
     else -> PanelLook()
 }
 

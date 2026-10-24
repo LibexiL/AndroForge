@@ -91,6 +91,9 @@ interface ForgeActions {
     fun requestLocation()
     fun openNotificationAccess()
     fun customize()
+    fun update(transform: (com.libexil.androforge.data.ForgeOptions) -> com.libexil.androforge.data.ForgeOptions) = Unit
+    fun launch(app: com.libexil.androforge.data.AppKey) = Unit
+    fun openSearch() = Unit
 }
 
 @Composable
@@ -101,6 +104,14 @@ fun ForgeWidget(item: ForgeWidgetItem, pal: Pal, actions: ForgeActions) {
         ForgeKind.VISUALIZER -> ForgePanel(item.look, item.kind, pal, reactsToMusic = true, padding = 8.dp) { VisualizerWidget(item, pal, actions) }
         ForgeKind.WEATHER -> ForgePanel(item.look, item.kind, pal) { WeatherWidget(item, pal, actions) }
         ForgeKind.SYSTEM -> ForgePanel(item.look, item.kind, pal) { SystemWidget(item, pal) }
+        ForgeKind.CALENDAR -> ForgePanel(item.look, item.kind, pal) { CalendarWidget(item, pal) }
+        ForgeKind.COUNTDOWN -> ForgePanel(item.look, item.kind, pal) { CountdownWidget(item, pal) }
+        ForgeKind.TODO -> ForgePanel(item.look, item.kind, pal) { TodoWidget(item, pal, actions) }
+        ForgeKind.SHELF -> ForgePanel(item.look, item.kind, pal, padding = 8.dp) { ShelfWidget(item, pal, actions) }
+        ForgeKind.NETWORK -> ForgePanel(item.look, item.kind, pal) { NetworkWidget(item, pal) }
+        ForgeKind.GREETING -> ForgePanel(item.look, item.kind, pal) { GreetingWidget(item, pal) }
+        ForgeKind.SEARCH -> ForgePanel(item.look, item.kind, pal, padding = 4.dp) { SearchWidget(item, pal, actions) }
+        ForgeKind.BATTERY -> ForgePanel(item.look, item.kind, pal) { BatteryWidget(item, pal) }
     }
 }
 
@@ -698,6 +709,8 @@ fun ForgeKindGlyph(kind: ForgeKind, pal: Pal) {
             WeatherIcon(Sky.PARTLY, true, pal, Modifier.size(34.dp), animate = false)
             Text("21°", color = pal.foreground, fontSize = 18.sp)
         }
+        ForgeKind.CALENDAR, ForgeKind.COUNTDOWN, ForgeKind.TODO, ForgeKind.SHELF,
+        ForgeKind.NETWORK, ForgeKind.GREETING, ForgeKind.SEARCH, ForgeKind.BATTERY -> NewKindGlyph(kind, pal)
         ForgeKind.MUSIC, ForgeKind.VISUALIZER, ForgeKind.SYSTEM -> Canvas(Modifier.fillMaxSize().padding(8.dp)) {
             val w = size.width
             val h = size.height

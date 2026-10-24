@@ -738,6 +738,14 @@ private fun ForgeWidgetCell(item: ForgeWidgetItem, vm: LauncherViewModel, host: 
             override fun customize() {
                 vm.editForgeId = current.id
             }
+            override fun update(transform: (com.libexil.androforge.data.ForgeOptions) -> com.libexil.androforge.data.ForgeOptions) {
+                vm.updateForge(current.id) { it.copy(options = transform(it.options)) }
+            }
+            override fun launch(app: com.libexil.androforge.data.AppKey) = vm.launch(app)
+            override fun openSearch() {
+                vm.emit(UiEvent.OpenDrawer)
+                vm.searchFocusTick++
+            }
         }
     }
     val haptic = LocalHapticFeedback.current

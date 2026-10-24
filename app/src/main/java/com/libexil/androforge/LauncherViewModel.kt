@@ -385,6 +385,32 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    /** One tap: theme everything (palette, accent, dock, island, bar) from the current wallpaper. */
+    fun matchWallpaper(saveCopy: Boolean = false) {
+        val p = com.libexil.androforge.data.Palettes.fromWallpaper(app)
+        if (p == null) {
+            toast("Couldn't read your wallpaper's colors")
+            return
+        }
+        updateSettings {
+            it.copy(
+                paletteSource = com.libexil.androforge.data.PaletteSource.WALLPAPER,
+                themeMode = com.libexil.androforge.data.ThemeMode.PALETTE,
+                dockAdaptiveColor = true,
+                labelColor = 0xFFFFFFFF,
+                islandColor = if (it.islandColor == com.libexil.androforge.data.IslandColor.BLACK) it.islandColor else com.libexil.androforge.data.IslandColor.PALETTE,
+                barText = com.libexil.androforge.data.ColorRole.FOREGROUND,
+            )
+        }
+        if (saveCopy) {
+            val stamp = java.text.SimpleDateFormat("MMM d", java.util.Locale.getDefault()).format(java.util.Date())
+            addCustomPalette(p.copy(name = "Wallpaper $stamp"))
+            toast("Saved your wallpaper's colors as a theme")
+        } else {
+            toast("Matched to your wallpaper")
+        }
+    }
+
     fun deleteCustomPalette(name: String) = updateSettings { s ->
         val left = s.customPalettes.filterNot { it.name == name }
         s.copy(

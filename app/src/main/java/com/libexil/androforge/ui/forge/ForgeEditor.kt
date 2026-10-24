@@ -55,6 +55,7 @@ import com.libexil.androforge.live.WeatherRepo
 import com.libexil.androforge.ui.Pal
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
+import androidx.compose.runtime.collectAsState
 
 /**
  * Bottom panel for customizing an AndroForge widget. Changes apply to the widget on the
@@ -147,6 +148,32 @@ private fun StyleTab(
             }
             EdSlider("Forecast days", o.forecastDays.toFloat(), 0f..5f, steps = 4) { v -> set { it.copy(forecastDays = v.roundToInt()) } }
         }
+        ForgeKind.CALENDAR -> EdSwitch("Week starts on Monday", o.mondayFirst) { v -> set { it.copy(mondayFirst = v) } }
+        ForgeKind.COUNTDOWN -> CountdownEditor(o, set)
+        ForgeKind.TODO -> TodoEditor(o, set)
+        ForgeKind.SHELF -> ShelfEditor(o, set)
+        ForgeKind.NETWORK -> Text(
+            "Shows this phone's total download and upload speed over the last minute.",
+            fontSize = 12.sp, color = Color.White.copy(alpha = 0.55f), modifier = Modifier.padding(top = 8.dp),
+        )
+        ForgeKind.GREETING -> OutlinedTextField(
+            value = o.greetingName,
+            onValueChange = { v -> set { it.copy(greetingName = v.take(24)) } },
+            label = { Text("Your name (optional)") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        ForgeKind.SEARCH -> OutlinedTextField(
+            value = o.searchHint,
+            onValueChange = { v -> set { it.copy(searchHint = v.take(40)) } },
+            label = { Text("Placeholder text") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        ForgeKind.BATTERY -> Text(
+            "Shows charge, time until full while charging, and battery temperature.",
+            fontSize = 12.sp, color = Color.White.copy(alpha = 0.55f), modifier = Modifier.padding(top = 8.dp),
+        )
         ForgeKind.SYSTEM -> {
             EdChips("Gauges", GaugeStyle.entries, o.gaugeStyle, { it.label }) { v -> set { it.copy(gaugeStyle = v) } }
             Text(
@@ -241,4 +268,130 @@ private fun LookTab(look: PanelLook, pal: Pal, set: ((PanelLook) -> PanelLook) -
     EdChips("Font", PanelFont.entries, look.font, { it.label }) { v -> set { it.copy(font = v) } }
     EdSlider("Text size", look.textScale, 0.7f..1.5f, format = { "${(it * 100).roundToInt()}%" }) { v -> set { it.copy(textScale = v) } }
     Box(Modifier.padding(top = 6.dp))
+}
+
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+private fun CountdownEditor(o: ForgeOptions, set: ((ForgeOptions) -> ForgeOptions) -> Unit) {
+    var picking by remember { mutableStateOf(false) }
+    val target = if (o.countdownTarget > 0) o.countdownTarget else nextNewYear()
+    OutlinedTextField(
+        value = o.countdownTitle,
+        onValueChange = { v -> set { it.copy(countdownTitle = v.take(30)) } },
+        label = { Text("What are you counting down to?") },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth(),
+    )
+    Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(java.text.SimpleDateFormat("EEE d MMM yyyy", java.util.Locale.getDefault()).format(java.util.Date(target)), fontSize = 15.sp, modifier = Modifier.weight(1f))
+        Button(onClick = { picking = true }) { Text("Pick date") }
+    }
+    EdChips(null, listOf("New Year", "1 week", "30 days", "Next birthday?"), "", { it }) { p ->
+        val day = 86_400_000L
+        val now = System.currentTimeMillis()
+        when (p) {
+            "New Year" -> set { it.copy(countdownTitle = "New Year", countdownTarget = nextNewYear()) }
+            "1 week" -> set { it.copy(countdownTarget = now + 7 * day) }
+            "30 days" -> set { it.copy(countdownTarget = now + 30 * day) }
+            else -> picking = true
+        }
+    }
+    if (picking) {
+        val state = androidx.compose.material3.rememberDatePickerState(initialSelectedDateMillis = target)
+        androidx.compose.material3.DatePickerDialog(
+            onDismissRequest = { picking = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    state.selectedDateMillis?.let { utc ->
+                        // The picker gives UTC midnight; count down to local midnight of that day.
+                        val c = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC")).apply { timeInMillis = utc }
+                        val local = java.util.Calendar.getInstance().apply {
+                            set(c.get(java.util.Calendar.YEAR), c.get(java.util.Calendar.MONTH), c.get(java.util.Calendar.DAY_OF_MONTH), 0, 0, 0)
+                            set(java.util.Calendar.MILLISECOND, 0)
+                        }
+                        set { it.copy(countdownTarget = local.timeInMillis) }
+                    }
+                    picking = false
+                }) { Text("OK") }
+            },
+            dismissButton = { TextButton(onClick = { picking = false }) { Text("Cancel") } },
+        ) { androidx.compose.material3.DatePicker(state = state) }
+    }
+}
+
+@Composable
+private fun TodoEditor(o: ForgeOptions, set: ((ForgeOptions) -> ForgeOptions) -> Unit) {
+    var draft by remember { mutableStateOf("") }
+    o.todos.forEachIndexed { i, t ->
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            androidx.compose.material3.Checkbox(checked = t.done, onCheckedChange = { v ->
+                set { op -> op.copy(todos = op.todos.mapIndexed { j, x -> if (j == i) x.copy(done = v) else x }) }
+            })
+            OutlinedTextField(
+                value = t.text,
+                onValueChange = { v -> set { op -> op.copy(todos = op.todos.mapIndexed { j, x -> if (j == i) x.copy(text = v.take(80)) else x }) } },
+                singleLine = true,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = { set { op -> op.copy(todos = op.todos.filterIndexed { j, _ -> j != i }) } }) { Text("\u2715") }
+        }
+    }
+    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 6.dp)) {
+        OutlinedTextField(
+            value = draft,
+            onValueChange = { draft = it.take(80) },
+            label = { Text("New item") },
+            singleLine = true,
+            modifier = Modifier.weight(1f),
+        )
+        Spacer(Modifier.width(8.dp))
+        Button(enabled = draft.isNotBlank(), onClick = {
+            val text = draft.trim()
+            set { it.copy(todos = it.todos + com.libexil.androforge.data.TodoItem(text)) }
+            draft = ""
+        }) { Text("Add") }
+    }
+    EdSwitch("Hide finished items", o.hideDone) { v -> set { it.copy(hideDone = v) } }
+    if (o.todos.any { it.done }) {
+        TextButton(onClick = { set { it.copy(todos = it.todos.filterNot { t -> t.done }) } }) { Text("Clear finished") }
+    }
+}
+
+@Composable
+private fun ShelfEditor(o: ForgeOptions, set: ((ForgeOptions) -> ForgeOptions) -> Unit) {
+    val apps by com.libexil.androforge.LauncherApp.instance.apps.apps.collectAsState()
+    var query by remember { mutableStateOf("") }
+    EdSwitch("Labels", o.shelfLabels) { v -> set { it.copy(shelfLabels = v) } }
+    EdLabel("Apps on the shelf (${o.shelfApps.size})")
+    OutlinedTextField(
+        value = query,
+        onValueChange = { query = it },
+        label = { Text("Search apps") },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth(),
+    )
+    val list = remember(apps, query, o.shelfApps) {
+        apps.filter { query.isBlank() || it.label.contains(query.trim(), ignoreCase = true) }
+            .sortedWith(compareBy({ if (it.key in o.shelfApps) 0 else 1 }, { it.label.lowercase() }))
+    }
+    androidx.compose.foundation.lazy.LazyColumn(Modifier.heightIn(max = 300.dp)) {
+        items(list.size) { i ->
+            val app = list[i]
+            val on = app.key in o.shelfApps
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable { set { it.copy(shelfApps = if (on) it.shelfApps - app.key else it.shelfApps + app.key) } }
+                    .padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                com.libexil.androforge.ui.AppIcon(app.key, 32.dp)
+                Spacer(Modifier.width(10.dp))
+                Text(app.label, modifier = Modifier.weight(1f), maxLines = 1)
+                androidx.compose.material3.Checkbox(checked = on, onCheckedChange = {
+                    set { it.copy(shelfApps = if (on) it.shelfApps - app.key else it.shelfApps + app.key) }
+                })
+            }
+        }
+    }
 }

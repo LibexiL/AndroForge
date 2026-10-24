@@ -313,6 +313,17 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                         PaletteStrip(pal, Modifier.fillMaxWidth())
                     }
                 }
+                item {
+                    Row(
+                        Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Button(onClick = { vm.matchWallpaper() }, modifier = Modifier.weight(1f)) { Text("Take colors from wallpaper") }
+                        OutlinedButton(onClick = { vm.matchWallpaper(saveCopy = true) }) { Text("Save") }
+                    }
+                }
+                item { Hint("Matches the palette, accent, dock, island and status bar to your wallpaper, and keeps following it when you change wallpaper. \u201cSave\u201d keeps a copy as a theme.") }
                 item { Choice("Source", PaletteSource.entries, s.paletteSource, { it.label }) { v -> set { it.copy(paletteSource = v) } } }
                 if (s.paletteSource == PaletteSource.PRESET) {
                     Palettes.presets.forEach { p ->
