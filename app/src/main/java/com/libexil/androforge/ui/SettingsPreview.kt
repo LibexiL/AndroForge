@@ -80,7 +80,7 @@ fun previewFor(section: String?): PreviewKind? = when (section) {
     "Dock" -> PreviewKind.DOCK
     "App drawer" -> PreviewKind.DRAWER
     "Palette", "Look & feel" -> PreviewKind.PALETTE
-    "Dynamic island & status bar", "Smart alerts", "Custom status bar" -> PreviewKind.ISLAND
+    "Dynamic island & status bar", "Smart alerts", "Custom status bar", "Override Android's bar" -> PreviewKind.ISLAND
     else -> null
 }
 

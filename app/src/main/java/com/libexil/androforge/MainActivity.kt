@@ -136,6 +136,7 @@ class MainActivity : ComponentActivity(), LauncherHost {
         vm.maybeAutoCheck()
         // Coming back from a settings screen may have changed access.
         PermissionBus.changed()
+        com.libexil.androforge.live.SystemOverride.apply(this, vm.state.value.settings)
     }
 
     override fun onStop() {

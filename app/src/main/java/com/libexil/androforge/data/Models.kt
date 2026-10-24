@@ -203,6 +203,9 @@ data class LauncherSettings(
     val barNotificationIcons: Boolean = true,
     val barNetwork: Boolean = true,
     val barHeightExtraDp: Int = 0,
+    // Override Android's own bar (needs WRITE_SECURE_SETTINGS via adb)
+    val hideSystemPopups: Boolean = false,
+    val hideSystemIcons: Boolean = false,
     val accentColor: Long = 0xFF8B6CFF,
     // Gestures
     val swipeUp: GestureAction = GestureAction.APP_DRAWER,

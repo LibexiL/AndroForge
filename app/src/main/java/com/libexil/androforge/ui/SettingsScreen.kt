@@ -100,6 +100,9 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
     val permissionTick by PermissionBus.version.collectAsState()
     val mediaAccess = remember(permissionTick) { MediaHub.accessGranted(context) }
     val audioOk = remember(permissionTick) { AudioViz.hasPermission() }
+    val overrideOk = remember(permissionTick) { com.libexil.androforge.live.SystemOverride.canWrite(context) }
+    val grantCmd = remember { com.libexil.androforge.live.SystemOverride.grantCommand(context) }
+    val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
     val btOk = remember(permissionTick) {
         android.os.Build.VERSION.SDK_INT < 31 ||
             androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.BLUETOOTH_CONNECT) ==
@@ -440,6 +443,65 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                     }
                     item { SwitchRow("Palette glow", s.islandGlow) { v -> set { it.copy(islandGlow = v) } } }
                     item { SwitchRow("Hide in landscape", s.islandHideLandscape, "Keeps games and videos clear") { v -> set { it.copy(islandHideLandscape = v) } } }
+                }
+                if (s.barMode != BarMode.OFF) {
+                    item(key = "section:Override Android's bar") { Section("Override Android's bar") }
+                    if (!overrideOk) {
+                        item {
+                            Column(
+                                Modifier
+                                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(20.dp))
+                                    .background(MaterialTheme.colorScheme.primaryContainer)
+                                    .padding(16.dp),
+                            ) {
+                                Text("One-time setup from your PC", fontSize = 15.sp)
+                                Text(
+                                    "Android only lets an app switch off its own pop-ups and status bar icons after you allow it with adb. " +
+                                        "Plug in your phone with USB debugging on, then run:",
+                                    fontSize = 13.sp, color = Color.White.copy(alpha = 0.75f),
+                                )
+                                Text(
+                                    grantCmd,
+                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                    fontSize = 12.sp,
+                                    modifier = Modifier
+                                        .padding(vertical = 10.dp)
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(Color.Black.copy(alpha = 0.4f))
+                                        .padding(10.dp),
+                                )
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Button(onClick = {
+                                        clipboard.setText(androidx.compose.ui.text.AnnotatedString(grantCmd))
+                                        vm.toast("Command copied")
+                                    }) { Text("Copy command") }
+                                    OutlinedButton(onClick = { PermissionBus.changed() }) { Text("Check again") }
+                                }
+                            }
+                        }
+                    }
+                    item {
+                        SwitchRow(
+                            "Hide Android's pop-ups",
+                            s.hideSystemPopups && overrideOk,
+                            "Only the island shows new notifications. Turning this off brings Android's banners back.",
+                        ) { v -> if (overrideOk) set { it.copy(hideSystemPopups = v) } else vm.toast("Run the setup command first") }
+                    }
+                    item {
+                        SwitchRow(
+                            "Hide Android's status bar icons",
+                            s.hideSystemIcons && overrideOk,
+                            "Clears the system clock and icons from under your bar (some phones keep a few).",
+                        ) { v -> if (overrideOk) set { it.copy(hideSystemIcons = v) } else vm.toast("Run the setup command first") }
+                    }
+                    if (s.barMode == BarMode.ISLAND) {
+                        item {
+                            ClickRow("Cover Android's bar completely", "Switch to Island + custom bar") { set { it.copy(barMode = BarMode.ISLAND_BAR) } }
+                        }
+                    }
                 }
                 if (s.barMode == BarMode.ISLAND_BAR) {
                     item(key = "section:Custom status bar") { Section("Custom status bar") }

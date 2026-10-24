@@ -309,6 +309,9 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         val after = state.value.settings
         if (before.iconPack != after.iconPack || before.iconShape != after.iconShape) repo.invalidateIcons()
         if (before.autoCheckUpdates != after.autoCheckUpdates) UpdateWorker.schedule(app, after.autoCheckUpdates)
+        if (before.hideSystemPopups != after.hideSystemPopups || before.hideSystemIcons != after.hideSystemIcons) {
+            com.libexil.androforge.live.SystemOverride.apply(app, after)
+        }
     }
 
     // ---------------------------------------------------------------- drag & drop
