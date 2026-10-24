@@ -237,6 +237,10 @@ fun IslandContent(service: AccessibilityService, geo: IslandGeometry) {
     val colors = when (s.islandColor) {
         IslandColor.BLACK -> IslandColors(SolidColor(Color.Black), Color.Black, Color.White, Color.White.copy(alpha = 0.6f))
         IslandColor.PALETTE -> IslandColors(SolidColor(pal.background), pal.background, pal.foreground, pal.muted)
+        IslandColor.GLASS -> IslandColors(
+            Brush.verticalGradient(listOf(lerp(pal.surface, Color.White, 0.08f).copy(alpha = 0.82f), pal.background.copy(alpha = 0.72f))),
+            pal.background, pal.foreground, pal.muted,
+        )
         IslandColor.GRADIENT -> IslandColors(
             Brush.linearGradient(listOf(lerp(pal.background, pal.accent, 0.28f), pal.background, lerp(pal.background, pal.accent2, 0.22f))),
             pal.background, pal.foreground, pal.muted,
@@ -267,7 +271,7 @@ fun IslandContent(service: AccessibilityService, geo: IslandGeometry) {
                                     if (s.islandTapAction == IslandTap.GLANCE) {
                                         panel = Panel.GLANCE
                                     } else {
-                                        service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_NOTIFICATIONS)
+                                        geo.openShade()
                                     }
                                 }
                                 Mode.MUSIC -> panel = Panel.PLAYER
@@ -282,7 +286,7 @@ fun IslandContent(service: AccessibilityService, geo: IslandGeometry) {
                         onLongPress = {
                             when {
                                 mode == Mode.MUSIC || mode == Mode.PLAYER -> MediaHub.openPlayer(context)
-                                mode == Mode.IDLE -> service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_NOTIFICATIONS)
+                                mode == Mode.IDLE -> geo.openShade()
                             }
                         },
                     )
@@ -298,7 +302,7 @@ fun IslandContent(service: AccessibilityService, geo: IslandGeometry) {
                                 when (mode) {
                                     Mode.MUSIC -> panel = Panel.PLAYER
                                     Mode.IDLE, Mode.CALL, Mode.LIVE, Mode.EVENT -> panel = Panel.GLANCE
-                                    else -> service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_NOTIFICATIONS)
+                                    else -> geo.openShade()
                                 }
                             } else if (total < -40f) {
                                 panel = Panel.NONE

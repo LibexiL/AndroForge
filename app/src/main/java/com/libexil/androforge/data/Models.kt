@@ -106,7 +106,32 @@ enum class BarMode(val label: String) {
 enum class IslandIdle(val label: String) { PILL("Pill"), DOT("Camera ring"), HIDDEN("Hidden") }
 
 @Serializable
-enum class IslandColor(val label: String) { BLACK("Black"), PALETTE("Palette"), GRADIENT("Gradient") }
+enum class IslandColor(val label: String) { BLACK("Black"), PALETTE("Palette"), GRADIENT("Gradient"), GLASS("Glass") }
+
+/** How the custom status bar is drawn. */
+@Serializable
+enum class BarStyle(val label: String) {
+    SOLID("Solid"), GLASS("Glass"), CLEAR("Clear"), NEON("Neon line"), FLOATING("Floating pill"), SPLIT("Split pills")
+}
+
+@Serializable
+enum class ClockPosition(val label: String) { LEFT("Left"), CENTER("Center"), RIGHT("Right") }
+
+@Serializable
+enum class ShadeMode(val label: String) { ANDROID("Android's"), FORGE("AndroForge") }
+
+@Serializable
+enum class ShadeStyle(val label: String) { GLASS("Glass"), SOLID("Solid"), GRADIENT("Gradient"), CLEAR("Clear") }
+
+@Serializable
+enum class TileShape(val label: String) { ROUNDED("Rounded"), CIRCLE("Circle"), SQUIRCLE("Squircle"), PILL("Pill") }
+
+@Serializable
+enum class ShadeTile(val label: String) {
+    WIFI("Wi-Fi"), BLUETOOTH("Bluetooth"), DATA("Internet"), FLASHLIGHT("Flashlight"), RING("Sound"),
+    DND("Do not disturb"), ROTATE("Auto-rotate"), LOCATION("Location"), HOTSPOT("Hotspot"),
+    SCREENSHOT("Screenshot"), LOCK("Lock"), POWER("Power menu"), SETTINGS("Settings"), ANDROID("Android panel")
+}
 
 @Serializable
 enum class IslandTap(val label: String) { GLANCE("Glance panel"), SHADE("Notification shade") }
@@ -203,6 +228,28 @@ data class LauncherSettings(
     val barNotificationIcons: Boolean = true,
     val barNetwork: Boolean = true,
     val barHeightExtraDp: Int = 0,
+    val barStyle: BarStyle = BarStyle.SOLID,
+    val barOpacity: Float = 1f,
+    val barFont: PanelFont = PanelFont.DEFAULT,
+    val barTextSize: Int = 14,
+    val barBold: Boolean = true,
+    val barClock: ClockPosition = ClockPosition.LEFT,
+    val barSidePadding: Int = 22,
+    val barCorner: Int = 18,
+    // Pull-down shade
+    val shadeMode: ShadeMode = ShadeMode.ANDROID,
+    val shadeStyle: ShadeStyle = ShadeStyle.GLASS,
+    val shadeOpacity: Float = 0.9f,
+    val shadeCorner: Int = 30,
+    val shadeTileShape: TileShape = TileShape.ROUNDED,
+    val shadeColumns: Int = 4,
+    val shadeTiles: List<ShadeTile> = listOf(
+        ShadeTile.WIFI, ShadeTile.BLUETOOTH, ShadeTile.FLASHLIGHT, ShadeTile.RING,
+        ShadeTile.DND, ShadeTile.ROTATE, ShadeTile.SCREENSHOT, ShadeTile.ANDROID,
+    ),
+    val shadeMedia: Boolean = true,
+    val shadeBrightness: Boolean = true,
+    val shadeHighlight: ColorRole = ColorRole.ACCENT,
     // Override Android's own bar (needs WRITE_SECURE_SETTINGS via adb)
     val hideSystemPopups: Boolean = false,
     val hideSystemIcons: Boolean = false,

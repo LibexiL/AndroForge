@@ -71,6 +71,24 @@ object NotifHub {
 
     internal var listener: WeakReference<ForgeNotificationListener>? = null
 
+    /** Do Not Disturb on (interruption filter isn't ALL). */
+    private val _dnd = MutableStateFlow(false)
+    val dnd: StateFlow<Boolean> = _dnd.asStateFlow()
+
+    internal fun setDnd(on: Boolean) {
+        _dnd.value = on
+    }
+
+    fun toggleDnd() {
+        val l = listener?.get() ?: return
+        runCatching {
+            l.requestInterruptionFilter(
+                if (_dnd.value) android.service.notification.NotificationListenerService.INTERRUPTION_FILTER_ALL
+                else android.service.notification.NotificationListenerService.INTERRUPTION_FILTER_PRIORITY,
+            )
+        }
+    }
+
     fun setEntries(list: List<NotifEntry>) {
         _entries.value = list
         // Keep the peek up to date (e.g. a new message in the same conversation) or drop it if removed.

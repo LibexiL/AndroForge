@@ -49,6 +49,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -97,12 +98,42 @@ import java.util.Locale
 
 // ═══════════════════════════════════════════════════════════════════ status bar
 
+/** The custom bar's window: draws [StatusBarView] and, in AndroForge-shade mode, opens the shade on a pull. */
 @Composable
 fun StatusBarContent(geo: IslandGeometry) {
-    val store = LauncherApp.instance.store
-    val state by store.state.collectAsState()
+    val state by LauncherApp.instance.store.state.collectAsState()
     val s = state.settings
     val pal = rememberPalette(s)
+    if (!geo.visible.value) return
+    Box(
+        Modifier
+            .fillMaxSize()
+            .then(
+                if (s.shadeMode == com.libexil.androforge.data.ShadeMode.FORGE) {
+                    Modifier.pointerInput(Unit) {
+                        var total = 0f
+                        androidx.compose.foundation.gestures.detectVerticalDragGestures(
+                            onDragStart = { total = 0f },
+                            onVerticalDrag = { ch, d ->
+                                total += d
+                                ch.consume()
+                                if (total > 24f) {
+                                    total = Float.NEGATIVE_INFINITY
+                                    geo.openShade()
+                                }
+                            },
+                        )
+                    }
+                } else {
+                    Modifier
+                },
+            ),
+    ) { StatusBarView(s, pal, Modifier.fillMaxSize()) }
+}
+
+/** The custom status bar itself (also used by the settings preview). */
+@Composable
+fun StatusBarView(s: com.libexil.androforge.data.LauncherSettings, pal: Pal, modifier: Modifier = Modifier) {
     val battery by SystemMonitor.battery.collectAsState()
     val net by SystemMonitor.net.collectAsState()
     val entries by NotifHub.entries.collectAsState()
@@ -115,58 +146,135 @@ fun StatusBarContent(geo: IslandGeometry) {
         Locale.getDefault(),
     ).format(Date(now))
     val date = SimpleDateFormat("EEE d MMM", Locale.getDefault()).format(Date(now))
-    val text = if (s.barText == ColorRole.FOREGROUND) {
-        if (s.barBackground == BarBackground.BLACK) Color.White else pal.foreground
-    } else {
-        pal.role(s.barText)
+    val style = s.barStyle
+    val clear = style == com.libexil.androforge.data.BarStyle.CLEAR
+    val text = when {
+        s.barText != ColorRole.FOREGROUND -> pal.role(s.barText)
+        clear -> Color.White
+        s.barBackground == BarBackground.BLACK -> Color.White
+        else -> pal.foreground
     }
-    val bg: Brush = when (s.barBackground) {
-        BarBackground.BLACK -> Brush.linearGradient(listOf(Color.Black, Color.Black))
-        BarBackground.PALETTE -> Brush.linearGradient(listOf(pal.background, pal.background))
-        BarBackground.GRADIENT -> Brush.horizontalGradient(
-            listOf(pal.background, androidx.compose.ui.graphics.lerp(pal.background, pal.accent, 0.35f), pal.background),
-        )
+    val a = s.barOpacity.coerceIn(0f, 1f)
+    val base: List<Color> = when (s.barBackground) {
+        BarBackground.BLACK -> listOf(Color.Black, Color.Black)
+        BarBackground.PALETTE -> listOf(pal.background, pal.background)
+        BarBackground.GRADIENT -> listOf(pal.background, androidx.compose.ui.graphics.lerp(pal.background, pal.accent, 0.35f), pal.background)
     }
-    if (!geo.visible.value) return
-    Row(
-        Modifier
-            .fillMaxSize()
-            .background(bg)
-            .padding(horizontal = 22.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(time, color = text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
-        if (s.barShowDate) {
-            Spacer(Modifier.width(8.dp))
-            Text(date, color = text.copy(alpha = 0.75f), fontSize = 13.sp, maxLines = 1)
-        }
-        Spacer(Modifier.weight(1f))
-        if (s.barNotificationIcons) {
-            icons.take(4).forEach { ic ->
-                Image(ic.smallIcon!!, null, colorFilter = ColorFilter.tint(text.copy(alpha = 0.9f)), modifier = Modifier.padding(end = 6.dp).size(14.dp))
+    val bg = Brush.horizontalGradient(base.map { it.copy(alpha = it.alpha * a) })
+    val glassBg = Brush.horizontalGradient(base.map { it.copy(alpha = 0.55f * a) })
+    val textStyle = TextStyle(
+        color = text,
+        fontSize = s.barTextSize.sp,
+        fontWeight = if (s.barBold) FontWeight.SemiBold else FontWeight.Normal,
+        fontFamily = when (s.barFont) {
+            com.libexil.androforge.data.PanelFont.MONO -> androidx.compose.ui.text.font.FontFamily.Monospace
+            com.libexil.androforge.data.PanelFont.SERIF -> androidx.compose.ui.text.font.FontFamily.Serif
+            else -> androidx.compose.ui.text.font.FontFamily.Default
+        },
+        shadow = if (clear) androidx.compose.ui.graphics.Shadow(Color.Black.copy(alpha = 0.7f), Offset(0f, 1f), 5f) else null,
+    )
+    val small = (s.barTextSize - 1).coerceAtLeast(9).sp
+    val iconPx = (s.barTextSize + 1).dp
+
+    val clock: @Composable () -> Unit = {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(time, style = textStyle, maxLines = 1)
+            if (s.barShowDate) {
+                Spacer(Modifier.width(8.dp))
+                Text(date, style = textStyle.copy(color = text.copy(alpha = 0.75f), fontSize = small, fontWeight = FontWeight.Normal), maxLines = 1)
             }
-            if (icons.isNotEmpty()) Spacer(Modifier.width(4.dp))
         }
-        if (s.barNetwork) {
-            NetworkGlyph(net, text, Modifier.size(15.dp))
-            Spacer(Modifier.width(8.dp))
-        }
-        when (s.barBattery) {
-            BatteryStyle.ICON_PERCENT -> {
-                Text("${battery.level}%", color = text, fontSize = 13.sp)
-                Spacer(Modifier.width(5.dp))
-                BatteryGlyph(battery.level, battery.charging, batteryColor(battery, pal, text), Modifier.size(width = 22.dp, height = 11.dp))
+    }
+    val status: @Composable () -> Unit = {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (s.barNotificationIcons) {
+                icons.take(4).forEach { ic ->
+                    Image(ic.smallIcon!!, null, colorFilter = ColorFilter.tint(text.copy(alpha = 0.9f)), modifier = Modifier.padding(end = 6.dp).size(iconPx))
+                }
+                if (icons.isNotEmpty()) Spacer(Modifier.width(4.dp))
             }
-            BatteryStyle.ICON -> BatteryGlyph(battery.level, battery.charging, batteryColor(battery, pal, text), Modifier.size(width = 22.dp, height = 11.dp))
-            BatteryStyle.PERCENT -> Text("${battery.level}%" + if (battery.charging) " ⚡" else "", color = text, fontSize = 13.sp)
-            BatteryStyle.BAR -> Box(Modifier.size(width = 34.dp, height = 4.dp)) {
-                Canvas(Modifier.fillMaxSize()) {
-                    drawRoundRect(text.copy(alpha = 0.25f), cornerRadius = CornerRadius(4f, 4f))
-                    drawRoundRect(
-                        Brush.horizontalGradient(pal.gradient),
-                        size = Size(size.width * battery.level / 100f, size.height),
-                        cornerRadius = CornerRadius(4f, 4f),
-                    )
+            if (s.barNetwork) {
+                NetworkGlyph(net, text, Modifier.size(iconPx + 1.dp))
+                Spacer(Modifier.width(8.dp))
+            }
+            val bw = (s.barTextSize * 1.6f).dp
+            val bh = (s.barTextSize * 0.8f).dp
+            when (s.barBattery) {
+                BatteryStyle.ICON_PERCENT -> {
+                    Text("${battery.level}%", style = textStyle.copy(fontSize = small))
+                    Spacer(Modifier.width(5.dp))
+                    BatteryGlyph(battery.level, battery.charging, batteryColor(battery, pal, text), Modifier.size(width = bw, height = bh))
+                }
+                BatteryStyle.ICON -> BatteryGlyph(battery.level, battery.charging, batteryColor(battery, pal, text), Modifier.size(width = bw, height = bh))
+                BatteryStyle.PERCENT -> Text("${battery.level}%" + if (battery.charging) " \u26A1" else "", style = textStyle.copy(fontSize = small))
+                BatteryStyle.BAR -> Box(Modifier.size(width = 34.dp, height = 4.dp)) {
+                    Canvas(Modifier.fillMaxSize()) {
+                        drawRoundRect(text.copy(alpha = 0.25f), cornerRadius = CornerRadius(4f, 4f))
+                        drawRoundRect(
+                            Brush.horizontalGradient(pal.gradient),
+                            size = Size(size.width * battery.level / 100f, size.height),
+                            cornerRadius = CornerRadius(4f, 4f),
+                        )
+                    }
+                }
+            }
+        }
+    }
+    val corner = RoundedCornerShape(s.barCorner.dp)
+    fun Modifier.surface(shape: androidx.compose.ui.graphics.Shape?): Modifier = when (style) {
+        com.libexil.androforge.data.BarStyle.CLEAR -> this
+        com.libexil.androforge.data.BarStyle.GLASS -> (if (shape != null) clip(shape) else this)
+            .background(glassBg)
+            .background(Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.14f * a), Color.White.copy(alpha = 0.03f * a))))
+            .then(if (shape != null) Modifier.border(1.dp, Color.White.copy(alpha = 0.16f * a), shape) else Modifier)
+        else -> (if (shape != null) clip(shape) else this).background(bg)
+    }
+    val side = s.barSidePadding.dp
+    when (style) {
+        com.libexil.androforge.data.BarStyle.SPLIT -> Box(modifier.padding(horizontal = 6.dp, vertical = 3.dp)) {
+            val left = if (s.barClock == com.libexil.androforge.data.ClockPosition.RIGHT) status else clock
+            val right = if (s.barClock == com.libexil.androforge.data.ClockPosition.RIGHT) clock else status
+            Box(Modifier.align(Alignment.CenterStart).fillMaxHeight().surface(corner).padding(horizontal = 14.dp), contentAlignment = Alignment.Center) { left() }
+            if (s.barClock == com.libexil.androforge.data.ClockPosition.CENTER) {
+                Box(Modifier.align(Alignment.Center).fillMaxHeight().surface(corner).padding(horizontal = 14.dp), contentAlignment = Alignment.Center) { clock() }
+                Box(Modifier.align(Alignment.CenterEnd).fillMaxHeight().surface(corner).padding(horizontal = 14.dp), contentAlignment = Alignment.Center) { status() }
+            } else {
+                Box(Modifier.align(Alignment.CenterEnd).fillMaxHeight().surface(corner).padding(horizontal = 14.dp), contentAlignment = Alignment.Center) { right() }
+            }
+        }
+        else -> {
+            val floating = style == com.libexil.androforge.data.BarStyle.FLOATING
+            Box(
+                modifier
+                    .then(if (floating) Modifier.padding(horizontal = 8.dp, vertical = 2.dp) else Modifier)
+                    .surface(if (floating) corner else null),
+            ) {
+                Row(
+                    Modifier.fillMaxSize().padding(horizontal = if (floating) 14.dp else side),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (s.barClock == com.libexil.androforge.data.ClockPosition.LEFT) clock()
+                    Spacer(Modifier.weight(1f))
+                    status()
+                    if (s.barClock == com.libexil.androforge.data.ClockPosition.RIGHT) {
+                        Spacer(Modifier.width(10.dp))
+                        clock()
+                    }
+                }
+                if (s.barClock == com.libexil.androforge.data.ClockPosition.CENTER) {
+                    Box(Modifier.align(Alignment.Center)) { clock() }
+                }
+                if (style == com.libexil.androforge.data.BarStyle.NEON) {
+                    Canvas(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(6.dp)) {
+                        val y = size.height - 1.dp.toPx()
+                        for (k in 3 downTo 1) {
+                            drawLine(
+                                Brush.horizontalGradient(pal.gradient.map { it.copy(alpha = 0.25f / k) }),
+                                Offset(0f, y), Offset(size.width, y), strokeWidth = (k * 2.5f).dp.toPx(),
+                            )
+                        }
+                        drawLine(Brush.horizontalGradient(pal.gradient), Offset(0f, y), Offset(size.width, y), strokeWidth = 1.5.dp.toPx())
+                    }
                 }
             }
         }
@@ -211,7 +319,7 @@ fun BatteryGlyph(level: Int, charging: Boolean, color: Color, modifier: Modifier
 }
 
 @Composable
-private fun NetworkGlyph(net: NetKind, color: Color, modifier: Modifier) {
+internal fun NetworkGlyph(net: NetKind, color: Color, modifier: Modifier) {
     Canvas(modifier) {
         val w = size.width
         val h = size.height

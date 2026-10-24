@@ -24,6 +24,7 @@ class ForgeNotificationListener : NotificationListenerService() {
     override fun onListenerConnected() {
         super.onListenerConnected()
         NotifHub.listener = WeakReference(this)
+        NotifHub.setDnd(currentInterruptionFilter.let { it != INTERRUPTION_FILTER_ALL && it != INTERRUPTION_FILTER_UNKNOWN })
         MediaHub.refresh()
         publish()
         // Don't pop up everything that was already there.
@@ -52,6 +53,10 @@ class ForgeNotificationListener : NotificationListenerService() {
         iconCache.keys.removeAll { it.startsWith(sbn.key + "@") }
         NotifHub.clearPeek(sbn.key)
         publish()
+    }
+
+    override fun onInterruptionFilterChanged(interruptionFilter: Int) {
+        NotifHub.setDnd(interruptionFilter != INTERRUPTION_FILTER_ALL && interruptionFilter != INTERRUPTION_FILTER_UNKNOWN)
     }
 
     override fun onNotificationRankingUpdate(rankingMap: RankingMap?) {

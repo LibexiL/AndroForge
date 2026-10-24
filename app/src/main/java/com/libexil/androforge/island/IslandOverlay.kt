@@ -83,6 +83,10 @@ class IslandGeometry {
     val visible = mutableStateOf(true)
     /** True while typing an inline reply: the island window must take keyboard focus. */
     val wantsFocus = mutableStateOf(false)
+    /** AndroForge's pull-down shade. */
+    val shadeOpen = mutableStateOf(false)
+    /** Opens AndroForge's shade or Android's, depending on settings and the lock screen. */
+    var openShade: () -> Unit = {}
 }
 
 /**
@@ -112,6 +116,17 @@ class IslandOverlay(private val service: AccessibilityService) {
                     apply()
                 }
         }
+        geo.openShade = {
+            val locked = service.getSystemService(android.app.KeyguardManager::class.java)?.isKeyguardLocked == true
+            if (settings.shadeMode == com.libexil.androforge.data.ShadeMode.FORGE && !locked) {
+                geo.shadeOpen.value = true
+            } else {
+                service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_NOTIFICATIONS)
+            }
+        }
+        scope.launch {
+            snapshotFlow { geo.shadeOpen.value }.collect { open -> if (open) ensureShade() }
+        }
         scope.launch {
             snapshotFlow { geo.wantsFocus.value }.collect {
                 islandRoot?.let { root -> runCatching { wm.updateViewLayout(root, islandParams()) } }
@@ -138,6 +153,7 @@ class IslandOverlay(private val service: AccessibilityService) {
     }
 
     fun stop() {
+        removeShade()
         screenReceiver?.let { runCatching { service.unregisterReceiver(it) } }
         screenReceiver = null
         removeIsland()
@@ -244,7 +260,7 @@ class IslandOverlay(private val service: AccessibilityService) {
     private fun barParams() = baseParams(
         WindowManager.LayoutParams.MATCH_PARENT,
         geo.statusBarPx.intValue,
-        touchable = false,
+        touchable = settings.shadeMode == com.libexil.androforge.data.ShadeMode.FORGE,
     ).apply {
         gravity = Gravity.TOP
     }
@@ -283,6 +299,32 @@ class IslandOverlay(private val service: AccessibilityService) {
         } catch (e: Exception) {
             android.util.Log.w("IslandOverlay", "Couldn't add bar", e)
         }
+    }
+
+    private var shadeRoot: ComposeView? = null
+
+    private fun ensureShade() {
+        if (shadeRoot != null) return
+        val v = composeView {
+            ShadeContent(service, geo) { removeShade() }
+        }
+        val params = baseParams(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT, touchable = true).apply {
+            gravity = Gravity.TOP
+        }
+        try {
+            wm.addView(v, params)
+            shadeRoot = v
+        } catch (e: Exception) {
+            android.util.Log.w("IslandOverlay", "Couldn't open shade", e)
+            geo.shadeOpen.value = false
+            service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_NOTIFICATIONS)
+        }
+    }
+
+    private fun removeShade() {
+        shadeRoot?.let { runCatching { wm.removeView(it) } }
+        shadeRoot = null
+        geo.shadeOpen.value = false
     }
 
     private fun removeIsland() {

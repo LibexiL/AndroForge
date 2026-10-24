@@ -406,7 +406,7 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                 }
                 if (s.barMode != BarMode.OFF) {
                     item { Choice("When idle", IslandIdle.entries, s.islandIdle, { it.label }) { v -> set { it.copy(islandIdle = v) } } }
-                    item { Choice("Island color", IslandColor.entries, s.islandColor, { it.label }) { v -> set { it.copy(islandColor = v) } } }
+                    item { Choice("Island style", IslandColor.entries, s.islandColor, { it.label }) { v -> set { it.copy(islandColor = v) } } }
                     item { IntSlider("Width", s.islandWidthDp, 50..240, suffix = "dp") { v -> set { it.copy(islandWidthDp = v) } } }
                     item { IntSlider("Height", s.islandHeightDp, 18..48, suffix = "dp") { v -> set { it.copy(islandHeightDp = v) } } }
                     item {
@@ -505,8 +505,24 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                 }
                 if (s.barMode == BarMode.ISLAND_BAR) {
                     item(key = "section:Custom status bar") { Section("Custom status bar") }
-                    item { Hint("Covers the system status bar with your own. Swiping down still opens notifications.") }
-                    item { Choice("Background", BarBackground.entries, s.barBackground, { it.label }) { v -> set { it.copy(barBackground = v) } } }
+                    item { Hint("Covers the system status bar with your own.") }
+                    item { Choice("Style", com.libexil.androforge.data.BarStyle.entries, s.barStyle, { it.label }) { v -> set { it.copy(barStyle = v) } } }
+                    if (s.barStyle == com.libexil.androforge.data.BarStyle.CLEAR) {
+                        item { Hint("Clear shows Android's icons underneath unless you also turn on \u201cHide Android's status bar icons\u201d above.") }
+                    }
+                    item { Choice("Color", BarBackground.entries, s.barBackground, { it.label }) { v -> set { it.copy(barBackground = v) } } }
+                    if (s.barStyle != com.libexil.androforge.data.BarStyle.CLEAR) {
+                        item { FloatSlider("Opacity", s.barOpacity, 0.1f..1f, { "${(it * 100).roundToInt()}%" }) { v -> set { it.copy(barOpacity = v) } } }
+                    }
+                    if (s.barStyle == com.libexil.androforge.data.BarStyle.FLOATING || s.barStyle == com.libexil.androforge.data.BarStyle.SPLIT) {
+                        item { IntSlider("Corner radius", s.barCorner, 0..30, suffix = "dp") { v -> set { it.copy(barCorner = v) } } }
+                    } else {
+                        item { IntSlider("Side padding", s.barSidePadding, 6..48, suffix = "dp") { v -> set { it.copy(barSidePadding = v) } } }
+                    }
+                    item { Choice("Clock position", com.libexil.androforge.data.ClockPosition.entries, s.barClock, { it.label }) { v -> set { it.copy(barClock = v) } } }
+                    item { Choice("Font", com.libexil.androforge.data.PanelFont.entries, s.barFont, { it.label }) { v -> set { it.copy(barFont = v) } } }
+                    item { IntSlider("Text size", s.barTextSize, 10..18, suffix = "sp") { v -> set { it.copy(barTextSize = v) } } }
+                    item { SwitchRow("Bold", s.barBold) { v -> set { it.copy(barBold = v) } } }
                     item {
                         Column(Modifier.padding(horizontal = 20.dp)) {
                             EdRoleSwatches("Text color", pal, s.barText, listOf(ColorRole.FOREGROUND, ColorRole.ACCENT, ColorRole.ACCENT2, ColorRole.RED, ColorRole.GREEN, ColorRole.YELLOW, ColorRole.BLUE, ColorRole.MAGENTA, ColorRole.CYAN)) { v ->
@@ -524,6 +540,77 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                     item { Choice("Battery", BatteryStyle.entries, s.barBattery, { it.label }) { v -> set { it.copy(barBattery = v) } } }
                     item { SwitchRow("Notification icons", s.barNotificationIcons) { v -> set { it.copy(barNotificationIcons = v) } } }
                     item { SwitchRow("Wi-Fi / mobile icon", s.barNetwork) { v -> set { it.copy(barNetwork = v) } } }
+                }
+
+                if (s.barMode != BarMode.OFF) {
+                    item(key = "section:Pull-down shade") { Section("Pull-down shade") }
+                    item {
+                        Choice("Pulling down opens", com.libexil.androforge.data.ShadeMode.entries, s.shadeMode, { it.label }) { v ->
+                            set { it.copy(shadeMode = v) }
+                        }
+                    }
+                    item {
+                        Hint(
+                            if (s.shadeMode == com.libexil.androforge.data.ShadeMode.FORGE) {
+                                "Pull down on your bar or the island to open AndroForge's shade. Its \u201cAndroid panel\u201d tile opens Android's own quick settings. On the lock screen Android's shade is used."
+                            } else {
+                                "Android's own pull-down can't be restyled without root. Pick AndroForge to use a shade you can theme."
+                            },
+                        )
+                    }
+                    if (s.shadeMode == com.libexil.androforge.data.ShadeMode.FORGE) {
+                        if (s.barMode != BarMode.ISLAND_BAR) {
+                            item { Hint("Tip: with \u201cIsland + custom bar\u201d you can pull down from anywhere along the top.") }
+                        }
+                        item { Choice("Style", com.libexil.androforge.data.ShadeStyle.entries, s.shadeStyle, { it.label }) { v -> set { it.copy(shadeStyle = v) } } }
+                        if (s.shadeStyle != com.libexil.androforge.data.ShadeStyle.CLEAR) {
+                            item { FloatSlider("Opacity", s.shadeOpacity, 0.2f..1f, { "${(it * 100).roundToInt()}%" }) { v -> set { it.copy(shadeOpacity = v) } } }
+                        }
+                        item { IntSlider("Corner radius", s.shadeCorner, 0..44, suffix = "dp") { v -> set { it.copy(shadeCorner = v) } } }
+                        item {
+                            Column(Modifier.padding(horizontal = 20.dp)) {
+                                EdRoleSwatches("Active tile color", pal, s.shadeHighlight) { v -> set { it.copy(shadeHighlight = v) } }
+                            }
+                        }
+                        item { Choice("Tile shape", com.libexil.androforge.data.TileShape.entries, s.shadeTileShape, { it.label }) { v -> set { it.copy(shadeTileShape = v) } } }
+                        item { IntSlider("Tiles per row", s.shadeColumns, 3..6) { v -> set { it.copy(shadeColumns = v) } } }
+                        item {
+                            Column(Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
+                                Text("Tiles", fontSize = 15.sp)
+                                Text("Tap to add or remove. They show in the order you add them.", fontSize = 12.sp, color = Color.White.copy(alpha = 0.55f))
+                                Spacer(Modifier.height(6.dp))
+                                @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+                                androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    com.libexil.androforge.data.ShadeTile.entries.forEach { t ->
+                                        val on = t in s.shadeTiles
+                                        androidx.compose.material3.FilterChip(
+                                            selected = on,
+                                            onClick = { set { it.copy(shadeTiles = if (on) it.shadeTiles - t else it.shadeTiles + t) } },
+                                            label = { Text(t.label) },
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        item { SwitchRow("Brightness slider", s.shadeBrightness) { v -> set { it.copy(shadeBrightness = v) } } }
+                        item { SwitchRow("Media player", s.shadeMedia) { v -> set { it.copy(shadeMedia = v) } } }
+                        if (!android.provider.Settings.System.canWrite(context)) {
+                            item {
+                                Banner(
+                                    "Allow brightness & auto-rotate",
+                                    "Lets the shade's slider and rotate tile change those settings.",
+                                    "Allow",
+                                ) {
+                                    runCatching {
+                                        context.startActivity(
+                                            android.content.Intent(android.provider.Settings.ACTION_MANAGE_WRITE_SETTINGS, android.net.Uri.parse("package:" + context.packageName))
+                                                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
 
                 item(key = "section:Gestures") { Section("Gestures") }

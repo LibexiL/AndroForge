@@ -72,7 +72,7 @@ import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.sin
 
-enum class PreviewKind(val label: String) { HOME("Home screen"), DOCK("Dock"), DRAWER("App drawer"), PALETTE("Palette"), MOTION("Motion"), ISLAND("Island & status bar") }
+enum class PreviewKind(val label: String) { HOME("Home screen"), DOCK("Dock"), DRAWER("App drawer"), PALETTE("Palette"), MOTION("Motion"), ISLAND("Island & status bar"), SHADE("Pull-down shade") }
 
 fun previewFor(section: String?): PreviewKind? = when (section) {
     "Home screen", "Icons" -> PreviewKind.HOME
@@ -81,6 +81,7 @@ fun previewFor(section: String?): PreviewKind? = when (section) {
     "App drawer" -> PreviewKind.DRAWER
     "Palette", "Look & feel" -> PreviewKind.PALETTE
     "Dynamic island & status bar", "Smart alerts", "Custom status bar", "Override Android's bar" -> PreviewKind.ISLAND
+    "Pull-down shade" -> PreviewKind.SHADE
     else -> null
 }
 
@@ -114,6 +115,17 @@ fun SettingsPreview(kind: PreviewKind, vm: LauncherViewModel, state: LauncherSta
                     PreviewKind.PALETTE -> PalettePreview(pal)
                     PreviewKind.MOTION -> MotionPreview(pal)
                     PreviewKind.ISLAND -> IslandPreview(state, pal)
+                    PreviewKind.SHADE -> Box(Modifier.fillMaxSize().padding(top = 26.dp, start = 10.dp, end = 10.dp)) {
+                        com.libexil.androforge.island.ShadeView(
+                            state.settings, pal, com.libexil.androforge.island.PreviewShadeActions,
+                            Modifier.graphicsLayer {
+                                scaleX = 0.8f
+                                scaleY = 0.8f
+                                transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0f)
+                            },
+                            preview = true,
+                        )
+                    }
                 }
             }
         }
@@ -368,6 +380,7 @@ private fun IslandPreview(state: LauncherState, pal: Pal) {
         IslandColor.BLACK -> Brush.linearGradient(listOf(Color.Black, Color.Black))
         IslandColor.PALETTE -> Brush.linearGradient(listOf(pal.background, pal.background))
         IslandColor.GRADIENT -> Brush.linearGradient(listOf(lerp(pal.background, pal.accent, 0.28f), pal.background, lerp(pal.background, pal.accent2, 0.22f)))
+        IslandColor.GLASS -> Brush.verticalGradient(listOf(pal.surface.copy(alpha = 0.75f), pal.background.copy(alpha = 0.6f)))
     }
     val fg = if (s.islandColor == IslandColor.BLACK) Color.White else pal.foreground
     val barH = 30.dp
@@ -385,7 +398,9 @@ private fun IslandPreview(state: LauncherState, pal: Pal) {
         } else {
             pal.role(s.barText)
         }
-        Row(
+        if (custom) {
+            com.libexil.androforge.island.StatusBarView(s, pal, Modifier.fillMaxWidth().height(barH))
+        } else Row(
             Modifier.fillMaxWidth().height(barH).background(barBg).padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
