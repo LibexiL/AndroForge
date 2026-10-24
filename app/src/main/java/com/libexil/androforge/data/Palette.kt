@@ -125,16 +125,68 @@ object Palettes {
         return build("From wallpaper", bg, surface, fg, muted, accent, accent2, red, green, yellow, blue, magenta, cyan, gradient)
     }
 
-    fun fromWallpaper(context: Context): ForgePalette? = try {
+    /**
+     * Colors from the wallpaper. Some phones (Samsung with live/video/theme wallpapers) don't
+     * share WallpaperColors, so fall back to the system's own wallpaper-derived palette (Android 12+).
+     */
+    fun fromWallpaper(context: Context): ForgePalette? {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
-            WallpaperManager.getInstance(context).getWallpaperColors(WallpaperManager.FLAG_SYSTEM)?.let {
-                fromColors(it.primaryColor.toArgb(), it.secondaryColor?.toArgb(), it.tertiaryColor?.toArgb())
+            try {
+                val wm = WallpaperManager.getInstance(context)
+                val c = wm.getWallpaperColors(WallpaperManager.FLAG_SYSTEM) ?: wm.getWallpaperColors(WallpaperManager.FLAG_LOCK)
+                if (c != null) return fromColors(c.primaryColor.toArgb(), c.secondaryColor?.toArgb(), c.tertiaryColor?.toArgb())
+            } catch (_: Exception) {
             }
-        } else {
-            null
         }
-    } catch (e: Exception) {
-        null
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            try {
+                val a1 = context.getColor(android.R.color.system_accent1_400)
+                val a2 = context.getColor(android.R.color.system_accent2_400)
+                val a3 = context.getColor(android.R.color.system_accent3_400)
+                return fromColors(a1, a2, a3)
+            } catch (_: Exception) {
+            }
+        }
+        return null
+    }
+
+    /** Palette from any image: finds the strongest distinct hues (like ThemeForge's wallpaper mode). */
+    fun fromBitmap(bitmap: android.graphics.Bitmap, name: String = "From image"): ForgePalette {
+        val small = android.graphics.Bitmap.createScaledBitmap(bitmap, 64, 64, true)
+        val buckets = 24
+        val weight = FloatArray(buckets)
+        val sumR = FloatArray(buckets)
+        val sumG = FloatArray(buckets)
+        val sumB = FloatArray(buckets)
+        var avgR = 0f
+        var avgG = 0f
+        var avgB = 0f
+        val hsl = FloatArray(3)
+        for (y in 0 until small.height) for (x in 0 until small.width) {
+            val px = small.getPixel(x, y)
+            val r = android.graphics.Color.red(px)
+            val g = android.graphics.Color.green(px)
+            val b = android.graphics.Color.blue(px)
+            avgR += r; avgG += g; avgB += b
+            ColorUtils.RGBToHSL(r, g, b, hsl)
+            if (hsl[1] < 0.18f || hsl[2] < 0.12f || hsl[2] > 0.92f) continue
+            val i = ((hsl[0] / 360f) * buckets).toInt().coerceIn(0, buckets - 1)
+            val w = hsl[1] * (1f - kotlin.math.abs(hsl[2] - 0.5f))
+            weight[i] += w
+            sumR[i] += r * w; sumG[i] += g * w; sumB[i] += b * w
+        }
+        val n = (small.width * small.height).toFloat()
+        val avg = android.graphics.Color.rgb((avgR / n).toInt(), (avgG / n).toInt(), (avgB / n).toInt())
+        fun colorOf(i: Int) = android.graphics.Color.rgb((sumR[i] / weight[i]).toInt(), (sumG[i] / weight[i]).toInt(), (sumB[i] / weight[i]).toInt())
+        val order = (0 until buckets).filter { weight[it] > 0f }.sortedByDescending { weight[it] }
+        val picks = ArrayList<Int>()
+        for (i in order) {
+            if (picks.none { p -> val d = kotlin.math.abs(p - i); minOf(d, buckets - d) < 3 }) picks += i
+            if (picks.size == 3) break
+        }
+        if (small !== bitmap) small.recycle()
+        val primary = picks.getOrNull(0)?.let(::colorOf) ?: avg
+        return fromColors(primary, picks.getOrNull(1)?.let(::colorOf), picks.getOrNull(2)?.let(::colorOf)).copy(name = name)
     }
 
     /** The palette the whole launcher (and the island) draws with right now. */

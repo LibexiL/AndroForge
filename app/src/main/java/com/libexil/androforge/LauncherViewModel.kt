@@ -392,7 +392,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun matchWallpaper(saveCopy: Boolean = false) {
         val p = com.libexil.androforge.data.Palettes.fromWallpaper(app)
         if (p == null) {
-            toast("Couldn't read your wallpaper's colors")
+            toast("Your phone isn't sharing the wallpaper's colors \u2014 use \u201cFrom an image\u201d and pick your wallpaper photo")
             return
         }
         updateSettings {
@@ -584,4 +584,5 @@ interface LauncherHost {
     fun openAccessibility()
     fun importPalette()
     fun exportPalette(palette: com.libexil.androforge.data.ForgePalette)
+    fun pickPaletteImage()
 }

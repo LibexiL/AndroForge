@@ -75,6 +75,30 @@ class MainActivity : ComponentActivity(), LauncherHost {
         }
     }
 
+    private val pickImage = registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri == null) return@registerForActivityResult
+        val bmp = try {
+            contentResolver.openInputStream(uri)?.use { input ->
+                val opts = android.graphics.BitmapFactory.Options().apply { inSampleSize = 8 }
+                android.graphics.BitmapFactory.decodeStream(input, null, opts)
+            }
+        } catch (e: Exception) {
+            null
+        }
+        if (bmp == null) {
+            Toast.makeText(this, "Couldn't open that image", Toast.LENGTH_SHORT).show()
+            return@registerForActivityResult
+        }
+        val stamp = java.text.SimpleDateFormat("MMM d", java.util.Locale.getDefault()).format(java.util.Date())
+        vm.addCustomPalette(Palettes.fromBitmap(bmp, "Image $stamp"))
+        vm.updateSettings { it.copy(themeMode = com.libexil.androforge.data.ThemeMode.PALETTE, dockAdaptiveColor = true) }
+        Toast.makeText(this, "Theme made from your image", Toast.LENGTH_SHORT).show()
+    }
+
+    override fun pickPaletteImage() {
+        pickImage.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+    }
+
     private val exportPaletteDoc = registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         val p = paletteExport ?: return@registerForActivityResult
         if (uri == null) return@registerForActivityResult

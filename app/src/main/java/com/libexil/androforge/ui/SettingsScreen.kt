@@ -326,6 +326,9 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                         OutlinedButton(onClick = { vm.matchWallpaper(saveCopy = true) }) { Text("Save") }
                     }
                 }
+                item {
+                    ClickRow("From an image\u2026", "Pick your wallpaper (or any photo) and make a theme from its colors") { host.pickPaletteImage() }
+                }
                 item { Hint("Matches the palette, accent, dock, island and status bar to your wallpaper, and keeps following it when you change wallpaper. \u201cSave\u201d keeps a copy as a theme.") }
                 item { Choice("Source", PaletteSource.entries, s.paletteSource, { it.label }) { v -> set { it.copy(paletteSource = v) } } }
                 if (s.paletteSource == PaletteSource.PRESET) {
