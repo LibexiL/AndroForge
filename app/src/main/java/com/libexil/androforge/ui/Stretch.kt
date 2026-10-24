@@ -27,7 +27,7 @@ import kotlin.math.abs
  * Positive [amount] = stretched at the bottom, negative = at the top.
  */
 @Stable
-class Stretch(private val scope: CoroutineScope, private val top: Boolean, private val bottom: Boolean) {
+class Stretch(private val scope: CoroutineScope, var top: Boolean, private val bottom: Boolean) {
     val amount = Animatable(0f)
     var heightPx = 1f
     var motion: Motion = Motion.Default

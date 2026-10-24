@@ -169,6 +169,9 @@ fun AppDrawer(
             .take(settings.drawerColumns)
     }
 
+    // Pull-down-to-close only when the list was already at the top when your finger went down,
+    // so scrolling back up through your apps never closes the drawer by accident.
+    val atTopAtDown = remember { booleanArrayOf(true) }
     val connection = remember(drawer) {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
@@ -180,7 +183,7 @@ fun AppDrawer(
             }
 
             override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
-                if (available.y > 0f && source == NestedScrollSource.UserInput) {
+                if (available.y > 0f && source == NestedScrollSource.UserInput && atTopAtDown[0]) {
                     drawer.dragBy(available.y)
                     return available
                 }
@@ -229,11 +232,21 @@ fun AppDrawer(
         ) {
             Box(
                 Modifier
-                    .padding(top = 8.dp, bottom = 10.dp)
-                    .size(width = 36.dp, height = 4.dp)
-                    .clip(RoundedCornerShape(50))
-                    .background(Color.White.copy(alpha = 0.35f)),
-            )
+                    .fillMaxWidth()
+                    .height(22.dp)
+                    .clickable(
+                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                        indication = null,
+                    ) { drawer.close() },
+                contentAlignment = Alignment.Center,
+            ) {
+                Box(
+                    Modifier
+                        .size(width = 40.dp, height = 5.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(Color.White.copy(alpha = 0.4f)),
+                )
+            }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 TextField(
                     value = query,
@@ -285,6 +298,15 @@ fun AppDrawer(
             state = gridState,
             modifier = Modifier
                 .fillMaxSize()
+                .pointerInput(stretch) {
+                    awaitEachGesture {
+                        awaitFirstDown(requireUnconsumed = false, pass = androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+                        val top = !gridState.canScrollBackward
+                        atTopAtDown[0] = top
+                        // Not starting at the top: overscrolling the top just stretches instead.
+                        stretch?.top = !top
+                    }
+                }
                 .nestedScroll(connection)
                 .stretchy(stretch)
                 .padding(start = 8.dp, end = if (fastScroll) 26.dp else 8.dp),

@@ -35,6 +35,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
@@ -105,6 +106,10 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
             android.content.pm.PackageManager.PERMISSION_GRANTED
     }
     var excludeOpen by remember { androidx.compose.runtime.mutableStateOf(false) }
+    var showPreview by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(true) }
+    var currentSection by remember { androidx.compose.runtime.mutableStateOf("Home screen") }
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val motion = LocalMotion.current
     if (excludeOpen) {
         ExcludeAppsDialog(apps, s.islandExcludedApps, onToggle = { pkg ->
             set { it.copy(islandExcludedApps = if (pkg in it.islandExcludedApps) it.islandExcludedApps - pkg else it.islandExcludedApps + pkg) }
@@ -126,11 +131,34 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                     Text("AndroForge", fontSize = 26.sp, color = MaterialTheme.colorScheme.primary)
                     Text("v${Updater.currentVersionName}", fontSize = 12.sp, color = Color.White.copy(alpha = 0.5f))
                 }
+                TextButton(onClick = { showPreview = !showPreview }) { Text(if (showPreview) "Hide preview" else "Preview") }
                 IconButton(onClick = { vm.settingsOpen = false }) { Icon(Icons.Default.Close, "Close") }
+            }
+            // Which section is on screen decides the preview.
+            LaunchedEffect(listState) {
+                androidx.compose.runtime.snapshotFlow {
+                    val info = listState.layoutInfo
+                    val limit = info.viewportStartOffset + (info.viewportEndOffset - info.viewportStartOffset) * 0.45f
+                    info.visibleItemsInfo
+                        .filter { (it.key as? String)?.startsWith("section:") == true && it.offset < limit }
+                        .maxByOrNull { it.offset }
+                        ?.let { (it.key as String).removePrefix("section:") }
+                        ?: if (listState.firstVisibleItemIndex == 0) "Home screen" else null
+                }.collect { sec -> if (sec != null) currentSection = sec }
+            }
+            val kind = previewFor(currentSection)
+            androidx.compose.animation.AnimatedVisibility(
+                visible = showPreview && kind != null,
+                enter = androidx.compose.animation.expandVertically(motion.spring(stiffness = 600f)) + androidx.compose.animation.fadeIn(motion.tween(150)),
+                exit = androidx.compose.animation.shrinkVertically(motion.spring(stiffness = 600f)) + androidx.compose.animation.fadeOut(motion.tween(120)),
+            ) {
+                var shown by remember { androidx.compose.runtime.mutableStateOf(PreviewKind.HOME) }
+                kind?.let { shown = it }
+                SettingsPreview(shown, vm, state, apps, Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
             }
             val stretch = if (s.stretchScroll) rememberStretch(top = true, bottom = true) else null
             NoPlatformOverscroll(stretch != null) {
-            LazyColumn(Modifier.fillMaxSize().stretchy(stretch), contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 40.dp)) {
+            LazyColumn(Modifier.fillMaxSize().stretchy(stretch), state = listState, contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 40.dp)) {
                 if (!host.isDefaultLauncher()) {
                     item {
                         Banner(
@@ -141,7 +169,7 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                     }
                 }
 
-                item { Section("Home screen") }
+                item(key = "section:Home screen") { Section("Home screen") }
                 item { IntSlider("Columns", s.columns, 3..8) { v -> set { it.copy(columns = v) } } }
                 item { IntSlider("Rows", s.rows, 3..10) { v -> set { it.copy(rows = v) } } }
                 item { IntSlider("Icon size", s.iconSizeDp, 36..76, suffix = "dp") { v -> set { it.copy(iconSizeDp = v) } } }
@@ -163,7 +191,7 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                     }
                 }
 
-                item { Section("Motion") }
+                item(key = "section:Motion") { Section("Motion") }
                 item { SwitchRow("Animations", s.animations, "Turn off for instant, no-motion transitions") { v -> set { it.copy(animations = v) } } }
                 item { SwitchRow("Stretchy scrolling", s.stretchScroll, "Lists stretch and spring back when you reach the end") { v -> set { it.copy(stretchScroll = v) } } }
                 if (s.animations) {
@@ -197,7 +225,7 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                     }
                 }
 
-                item { Section("Icons") }
+                item(key = "section:Icons") { Section("Icons") }
                 item {
                     Choice("Icon shape", IconShape.entries, s.iconShape, { it.label }) { v -> set { it.copy(iconShape = v) } }
                 }
@@ -219,7 +247,7 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                     Choice("Folder style", FolderStyle.entries, s.folderStyle, { it.label }) { v -> set { it.copy(folderStyle = v) } }
                 }
 
-                item { Section("Dock") }
+                item(key = "section:Dock") { Section("Dock") }
                 item { SwitchRow("Show dock", s.dockEnabled) { v -> set { it.copy(dockEnabled = v) } } }
                 if (s.dockEnabled) {
                     item { Choice("Style", DockStyle.entries, s.dockStyle, { it.label }) { v -> set { it.copy(dockStyle = v) } } }
@@ -261,7 +289,7 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                     }
                 }
 
-                item { Section("App drawer") }
+                item(key = "section:App drawer") { Section("App drawer") }
                 item { IntSlider("Columns", s.drawerColumns, 3..7) { v -> set { it.copy(drawerColumns = v) } } }
                 item {
                     FloatSlider("Background opacity", s.drawerOpacity, 0.3f..1f, { "${(it * 100).roundToInt()}%" }) { v ->
@@ -276,7 +304,7 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                     ClickRow("Hidden apps", "${state.hidden.size} hidden") { vm.hiddenAppsOpen = true }
                 }
 
-                item { Section("Palette") }
+                item(key = "section:Palette") { Section("Palette") }
                 item {
                     Column(Modifier.padding(horizontal = 20.dp, vertical = 6.dp)) {
                         Text(pal.source.name, fontSize = 16.sp)
@@ -321,7 +349,7 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                 }
                 item { Hint("Theme files are the same format ThemeForge uses, so you can move a theme between your PC and phone.") }
 
-                item { Section("Look & feel") }
+                item(key = "section:Look & feel") { Section("Look & feel") }
                 item { Choice("Accent color", ThemeMode.entries, s.themeMode, { it.label }) { v -> set { it.copy(themeMode = v) } } }
                 if (s.themeMode == ThemeMode.CUSTOM ||
                     (s.themeMode == ThemeMode.MATERIAL_YOU && Build.VERSION.SDK_INT < Build.VERSION_CODES.S)
@@ -330,7 +358,7 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                 }
                 item { ClickRow("Wallpaper", "Pick a new wallpaper") { host.pickWallpaper() } }
 
-                item { Section("Dynamic island & status bar") }
+                item(key = "section:Dynamic island & status bar") { Section("Dynamic island & status bar") }
                 if (s.barMode != BarMode.OFF && !LockService.isRunning) {
                     item {
                         Banner(
@@ -391,7 +419,7 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                     }
                     item { SwitchRow("Second bubble", s.islandBubble, "A small extra bubble when two things run at once") { v -> set { it.copy(islandBubble = v) } } }
                     item { Choice("Tap the idle island", IslandTap.entries, s.islandTapAction, { it.label }) { v -> set { it.copy(islandTapAction = v) } } }
-                    item { Section("Smart alerts") }
+                    item(key = "section:Smart alerts") { Section("Smart alerts") }
                     item { SwitchRow("Notification pop-ups", s.islandNotifications, "Tap to open, swipe up or \u2715 to dismiss") { v -> set { it.copy(islandNotifications = v) } } }
                     if (s.islandNotifications) {
                         item { SwitchRow("Action buttons", s.islandPeekActions, "Reply, mark as read, mute\u2026 right from the pop-up") { v -> set { it.copy(islandPeekActions = v) } } }
@@ -403,7 +431,7 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                     item { SwitchRow("Hide in landscape", s.islandHideLandscape, "Keeps games and videos clear") { v -> set { it.copy(islandHideLandscape = v) } } }
                 }
                 if (s.barMode == BarMode.ISLAND_BAR) {
-                    item { Section("Custom status bar") }
+                    item(key = "section:Custom status bar") { Section("Custom status bar") }
                     item { Hint("Covers the system status bar with your own. Swiping down still opens notifications.") }
                     item { Choice("Background", BarBackground.entries, s.barBackground, { it.label }) { v -> set { it.copy(barBackground = v) } } }
                     item {
@@ -425,7 +453,7 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                     item { SwitchRow("Wi-Fi / mobile icon", s.barNetwork) { v -> set { it.copy(barNetwork = v) } } }
                 }
 
-                item { Section("Gestures") }
+                item(key = "section:Gestures") { Section("Gestures") }
                 item { Choice("Swipe up", GestureAction.entries, s.swipeUp, { it.label }) { v -> set { it.copy(swipeUp = v) } } }
                 item { Choice("Swipe down", GestureAction.entries, s.swipeDown, { it.label }) { v -> set { it.copy(swipeDown = v) } } }
                 item { Choice("Double tap", GestureAction.entries, s.doubleTap, { it.label }) { v -> set { it.copy(doubleTap = v) } } }
@@ -440,7 +468,7 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                     }
                 }
 
-                item { Section("Updates") }
+                item(key = "section:Updates") { Section("Updates") }
                 item {
                     SwitchRow("Check for updates automatically", s.autoCheckUpdates, "Looks for new releases on GitHub every few hours") { v ->
                         set { it.copy(autoCheckUpdates = v) }
@@ -475,11 +503,11 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                     }
                 }
 
-                item { Section("Backup") }
+                item(key = "section:Backup") { Section("Backup") }
                 item { ClickRow("Export layout", "Save your home screen, dock and settings to a file") { host.exportLayout() } }
                 item { ClickRow("Import layout", "Restore from a file (widgets need re-adding)") { host.importLayout() } }
 
-                item { Section("About") }
+                item(key = "section:About") { Section("About") }
                 item {
                     Hint(
                         "AndroForge • ${apps.size} apps • ${state.items.size} home items\n" +

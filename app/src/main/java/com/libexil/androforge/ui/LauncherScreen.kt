@@ -135,18 +135,23 @@ class DrawerController(private val scope: CoroutineScope) {
     private var job: Job? = null
 
     val isOpen: Boolean get() = progress > 0.001f
+    private var closing = false
 
     fun dragBy(dy: Float) {
         job?.cancel()
-        progress = (progress - dy / heightPx).coerceIn(0f, 1f)
+        if (dy != 0f) closing = dy > 0f
+        // Closing moves a bit faster than your finger so a short pull is enough.
+        val factor = if (dy > 0f) 1.35f else 1f
+        progress = (progress - dy * factor / heightPx).coerceIn(0f, 1f)
     }
 
+    /** Decide open/closed from where it is, which way you were moving, and how fast. */
     fun settle(velocityY: Float) {
         val target = when {
-            velocityY < -900f -> 1f
-            velocityY > 900f -> 0f
-            progress > 0.45f -> 1f
-            else -> 0f
+            velocityY > 250f -> 0f
+            velocityY < -250f -> 1f
+            closing -> if (progress < 0.88f) 0f else 1f
+            else -> if (progress > 0.15f) 1f else 0f
         }
         animateTo(target)
     }
