@@ -8,7 +8,19 @@ import android.os.SystemClock
 import android.provider.Settings
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.RoundRect
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.IntSize
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -238,13 +250,11 @@ fun IslandContent(service: AccessibilityService, geo: IslandGeometry) {
     val bubbleEntry = if (bubbleLive) (ongoingCall ?: live) else null
 
     Row(Modifier.padding(top = topPad, start = 10.dp, end = 10.dp, bottom = 12.dp), verticalAlignment = Alignment.Top) {
-        Box(
-            Modifier
-                .animateContentSize(spring(dampingRatio = 0.74f, stiffness = Spring.StiffnessMediumLow))
-                .widthIn(max = maxW)
-                .clip(shape)
-                .background(colors.bg)
-                .then(if (glow) Modifier.border(1.dp, Brush.linearGradient(pal.gradient.map { it.copy(alpha = 0.75f) }), shape) else Modifier)
+        IslandMorph(
+            corner = if (big) 30.dp else h / 2,
+            bg = colors.bg,
+            border = if (glow) Brush.linearGradient(pal.gradient.map { it.copy(alpha = 0.75f) }) else null,
+            modifier = Modifier
                 .pointerInput(mode, m?.pkg, peek?.key, live?.key, ongoingCall?.key) {
                     detectTapGestures(
                         onTap = {
@@ -299,7 +309,12 @@ fun IslandContent(service: AccessibilityService, geo: IslandGeometry) {
         ) {
             AnimatedContent(
                 targetState = mode,
-                transitionSpec = { fadeIn(tween(220, delayMillis = 70)) togetherWith fadeOut(tween(110)) },
+                modifier = Modifier.widthIn(max = maxW),
+                transitionSpec = {
+                    (fadeIn(tween(200, delayMillis = 90)) togetherWith fadeOut(tween(90)))
+                        .using(SizeTransform(clip = false) { _, _ -> snap() })
+                },
+                contentAlignment = Alignment.TopCenter,
                 label = "island",
             ) { md ->
                 when (md) {
@@ -353,6 +368,57 @@ fun IslandContent(service: AccessibilityService, geo: IslandGeometry) {
                 }
             }
         }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════ morph
+
+/**
+ * The island's shape. The overlay window resizes only twice per transition (grow at the start,
+ * shrink at the end); in between, the rounded background and its clip animate in the draw phase,
+ * so nothing is re-laid-out per frame.
+ */
+@Composable
+private fun IslandMorph(corner: Dp, bg: Brush, border: Brush?, modifier: Modifier, content: @Composable () -> Unit) {
+    var target by remember { mutableStateOf(IntSize.Zero) }
+    var hold by remember { mutableStateOf(IntSize.Zero) }
+    val w = remember { Animatable(0f) }
+    val hh = remember { Animatable(0f) }
+    val radius = animateDpAsState(corner, spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMedium), label = "radius")
+    LaunchedEffect(target) {
+        if (target == IntSize.Zero) return@LaunchedEffect
+        if (w.value == 0f) {
+            w.snapTo(target.width.toFloat())
+            hh.snapTo(target.height.toFloat())
+            hold = target
+            return@LaunchedEffect
+        }
+        hold = IntSize(maxOf(hold.width, target.width), maxOf(hold.height, target.height))
+        coroutineScope {
+            launch { w.animateTo(target.width.toFloat(), spring(dampingRatio = 0.78f, stiffness = 520f)) }
+            launch { hh.animateTo(target.height.toFloat(), spring(dampingRatio = 0.82f, stiffness = 520f)) }
+        }
+        hold = target
+    }
+    Layout(
+        content = { Box(Modifier.onSizeChanged { target = it }) { content() } },
+        modifier = modifier.drawWithContent {
+            val rw = w.value.coerceAtLeast(1f).coerceAtMost(size.width)
+            val rh = hh.value.coerceAtLeast(1f).coerceAtMost(size.height)
+            val left = (size.width - rw) / 2f
+            val r = radius.value.toPx().coerceAtMost(rh / 2f)
+            val path = Path().apply {
+                addRoundRect(RoundRect(left, 0f, left + rw, rh, CornerRadius(r, r)))
+            }
+            drawPath(path, bg)
+            clipPath(path) { this@drawWithContent.drawContent() }
+            if (border != null) drawPath(path, border, style = Stroke(1.dp.toPx()))
+        },
+    ) { measurables, constraints ->
+        val p = measurables.first().measure(constraints.copy(minWidth = 0, minHeight = 0))
+        val lw = maxOf(hold.width, p.width)
+        val lh = maxOf(hold.height, p.height)
+        layout(lw, lh) { p.place((lw - p.width) / 2, 0) }
     }
 }
 

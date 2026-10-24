@@ -317,6 +317,9 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                     }
                 }
                 item { Choice("Mode", BarMode.entries, s.barMode, { it.label }) { v -> set { it.copy(barMode = v) } } }
+                if (s.barMode == BarMode.ISLAND) {
+                    item { Hint("Island only sits on top of Android's own status bar. Pick \u201cIsland + custom bar\u201d to cover it with AndroForge's bar.") }
+                }
                 if (s.barMode != BarMode.OFF) {
                     item { Choice("When idle", IslandIdle.entries, s.islandIdle, { it.label }) { v -> set { it.copy(islandIdle = v) } } }
                     item { Choice("Island color", IslandColor.entries, s.islandColor, { it.label }) { v -> set { it.copy(islandColor = v) } } }

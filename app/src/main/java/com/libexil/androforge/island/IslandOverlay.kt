@@ -163,6 +163,9 @@ class IslandOverlay(private val service: AccessibilityService) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             val metrics = wm.currentWindowMetrics
             width = metrics.bounds.width()
+            // Some phones (Samsung) make the status bar taller than the framework dimen.
+            val inset = metrics.windowInsets.getInsetsIgnoringVisibility(android.view.WindowInsets.Type.statusBars()).top
+            if (inset > geo.statusBarPx.intValue) geo.statusBarPx.intValue = inset
             cutout = metrics.windowInsets.displayCutout?.boundingRectTop?.takeIf { !it.isEmpty }
         } else {
             width = service.resources.displayMetrics.widthPixels
