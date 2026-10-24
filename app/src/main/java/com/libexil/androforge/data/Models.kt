@@ -135,6 +135,12 @@ data class LauncherSettings(
     val iconPack: String? = null,
     val pageIndicator: Boolean = true,
     val lockLayout: Boolean = false,
+    // Motion
+    val animations: Boolean = true,
+    val animScale: Float = 0.8f,
+    val animBounce: Float = 0.3f,
+    // Widgets under the dock (0 = off)
+    val belowDockRows: Int = 0,
     val folderStyle: FolderStyle = FolderStyle.GRID,
     // Dock
     val dockEnabled: Boolean = true,
@@ -156,6 +162,7 @@ data class LauncherSettings(
     val drawerOpacity: Float = 0.88f,
     val drawerShowSuggestions: Boolean = true,
     val drawerAutoFocusSearch: Boolean = false,
+    val drawerFastScroll: Boolean = true,
     // Theme
     val themeMode: ThemeMode = ThemeMode.PALETTE,
     // Palette (ThemeForge format)

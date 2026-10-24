@@ -12,14 +12,21 @@ import android.widget.FrameLayout
 import kotlin.math.abs
 
 /**
- * Hosts an AppWidgetHostView and adds launcher-style long-press detection on top of it
- * (widgets normally swallow touches, so we intercept once the long-press fires).
+ * Hosts an AppWidgetHostView and adds launcher-style hold-and-drag on top of it. Widgets
+ * normally swallow touches, so once the long press fires we take over the gesture and
+ * report finger movement until it lifts.
  */
 class WidgetFrame(context: Context) : FrameLayout(context) {
-    var onLongPress: (() -> Unit)? = null
+    /** Local x/y of the press, in px. */
+    var onLongPress: ((Float, Float) -> Unit)? = null
+    var onDrag: ((Float, Float) -> Unit)? = null
+    var onDragEnd: (() -> Unit)? = null
+
     private val slop = ViewConfiguration.get(context).scaledTouchSlop
     private var downX = 0f
     private var downY = 0f
+    private var lastRawX = 0f
+    private var lastRawY = 0f
     private var longPressed = false
     private var lastW = -1
     private var lastH = -1
@@ -27,7 +34,12 @@ class WidgetFrame(context: Context) : FrameLayout(context) {
     private val longPressRunnable = Runnable {
         longPressed = true
         performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-        onLongPress?.invoke()
+        // Stop the widget's own press state.
+        val cancel = MotionEvent.obtain(0, 0, MotionEvent.ACTION_CANCEL, 0f, 0f, 0)
+        for (i in 0 until childCount) getChildAt(i).dispatchTouchEvent(cancel)
+        cancel.recycle()
+        parent?.requestDisallowInterceptTouchEvent(true)
+        onLongPress?.invoke(downX, downY)
     }
 
     init {
@@ -61,12 +73,15 @@ class WidgetFrame(context: Context) : FrameLayout(context) {
             MotionEvent.ACTION_DOWN -> {
                 downX = ev.x
                 downY = ev.y
+                lastRawX = ev.rawX
+                lastRawY = ev.rawY
                 longPressed = false
                 removeCallbacks(longPressRunnable)
                 postDelayed(longPressRunnable, ViewConfiguration.getLongPressTimeout().toLong())
             }
-            MotionEvent.ACTION_MOVE ->
-                if (abs(ev.x - downX) > slop || abs(ev.y - downY) > slop) removeCallbacks(longPressRunnable)
+            MotionEvent.ACTION_MOVE -> {
+                if (!longPressed && (abs(ev.x - downX) > slop || abs(ev.y - downY) > slop)) removeCallbacks(longPressRunnable)
+            }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_POINTER_DOWN ->
                 removeCallbacks(longPressRunnable)
         }
@@ -79,11 +94,30 @@ class WidgetFrame(context: Context) : FrameLayout(context) {
 
     override fun onTouchEvent(ev: MotionEvent): Boolean {
         if (ev.actionMasked != MotionEvent.ACTION_DOWN) track(ev)
+        if (longPressed) {
+            when (ev.actionMasked) {
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = ev.rawX - lastRawX
+                    val dy = ev.rawY - lastRawY
+                    lastRawX = ev.rawX
+                    lastRawY = ev.rawY
+                    if (dx != 0f || dy != 0f) onDrag?.invoke(dx, dy)
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    longPressed = false
+                    onDragEnd?.invoke()
+                }
+            }
+        }
         return true
     }
 
     override fun onDetachedFromWindow() {
         removeCallbacks(longPressRunnable)
+        if (longPressed) {
+            longPressed = false
+            onDragEnd?.invoke()
+        }
         super.onDetachedFromWindow()
     }
 }

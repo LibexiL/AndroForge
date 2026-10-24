@@ -64,6 +64,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -75,6 +76,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -151,19 +153,24 @@ fun ContextMenu(req: MenuRequest, vm: LauncherViewModel, host: LauncherHost, sta
                     add(MenuEntry("Customize", Icons.Default.Edit) { vm.editForgeId = item.id })
                     if (!state.settings.lockLayout) {
                         add(MenuEntry("Resize", Icons.Default.Menu) { vm.resizeWidgetId = item.id })
-                        add(MenuEntry("Move", Icons.Default.KeyboardArrowDown) { vm.movingWidgetId = item.id })
+                        if (state.settings.belowDockRows > 0 && item.page != com.libexil.androforge.data.BELOW_DOCK) {
+                            add(MenuEntry("Move under dock", Icons.Default.KeyboardArrowDown) { vm.moveBelowDock(item.id) })
+                        }
                         add(MenuEntry("Remove", Icons.Default.Close) { vm.removeItem(item.id, host) })
                     }
                 }
                 is WidgetItem -> {
                     if (!state.settings.lockLayout) {
                         add(MenuEntry("Resize", Icons.Default.Menu) { vm.resizeWidgetId = item.id })
-                        add(MenuEntry("Move", Icons.Default.KeyboardArrowDown) { vm.movingWidgetId = item.id })
+                        if (state.settings.belowDockRows > 0 && item.page != com.libexil.androforge.data.BELOW_DOCK) {
+                            add(MenuEntry("Move under dock", Icons.Default.KeyboardArrowDown) { vm.moveBelowDock(item.id) })
+                        }
                         add(MenuEntry("Remove", Icons.Default.Close) { vm.removeItem(item.id, host) })
                     }
                 }
             }
             is MenuTarget.DrawerApp -> {
+                add(MenuEntry("Select apps", Icons.Default.Star) { vm.startSelecting(target.app) })
                 add(MenuEntry("Add to home", Icons.Default.Home) { vm.addToHome(target.app) })
                 add(MenuEntry("Add to dock", Icons.Default.Star) { vm.addToDock(target.app) })
                 add(MenuEntry("Edit", Icons.Default.Edit) { vm.editApp = target.app })
@@ -177,7 +184,11 @@ fun ContextMenu(req: MenuRequest, vm: LauncherViewModel, host: LauncherHost, sta
                 add(MenuEntry("App info", Icons.Default.Info) { repo.openAppInfo(target.app) })
             }
             is MenuTarget.Background -> {
-                add(MenuEntry("Widgets", Icons.Default.Add) { vm.widgetPickerPage = target.page })
+                add(MenuEntry("Widgets", Icons.Default.Add) { vm.widgetPickerPage = target.page.coerceAtLeast(0) })
+                add(MenuEntry("New folder\u2026", Icons.Default.Add) {
+                    vm.folderPickerPage = target.page.coerceAtLeast(0)
+                    vm.folderPickerFor = ""
+                })
                 add(MenuEntry("Wallpaper", Icons.Default.Face) { host.pickWallpaper() })
                 add(MenuEntry("Launcher settings", Icons.Default.Settings) { vm.settingsOpen = true })
                 add(MenuEntry("Add page", Icons.Default.Add) { vm.addPage() })
@@ -198,6 +209,11 @@ fun ContextMenu(req: MenuRequest, vm: LauncherViewModel, host: LauncherHost, sta
             .pointerInput(Unit) { detectTapGestures { close() } },
     ) {
         var cardSize by remember { mutableStateOf(IntSize.Zero) }
+        val motion = LocalMotion.current
+        val appear = remember(req) { androidx.compose.animation.core.Animatable(if (motion.enabled) 0f else 1f) }
+        LaunchedEffect(req, cardSize != IntSize.Zero) {
+            if (cardSize != IntSize.Zero) appear.animateTo(1f, motion.spring(stiffness = 900f))
+        }
         val margin = with(density) { 12.dp.toPx() }
         val gap = with(density) { 36.dp.toPx() }
         val maxW = constraints.maxWidth.toFloat()
@@ -211,7 +227,13 @@ fun ContextMenu(req: MenuRequest, vm: LauncherViewModel, host: LauncherHost, sta
                 .offset { IntOffset(x.roundToInt(), y.roundToInt()) }
                 .width(232.dp)
                 .onSizeChanged { cardSize = it }
-                .alpha(if (cardSize == IntSize.Zero) 0f else 1f)
+                .graphicsLayer {
+                    val k = appear.value
+                    alpha = if (cardSize == IntSize.Zero) 0f else k.coerceIn(0f, 1f)
+                    scaleX = 0.9f + 0.1f * k
+                    scaleY = 0.9f + 0.1f * k
+                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, if (req.anchor.y > y) 1f else 0f)
+                }
                 .pointerInput(Unit) { detectTapGestures { } },
             shape = RoundedCornerShape(22.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),

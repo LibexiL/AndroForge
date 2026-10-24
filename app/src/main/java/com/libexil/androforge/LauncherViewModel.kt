@@ -25,6 +25,7 @@ import com.libexil.androforge.data.LauncherState
 import com.libexil.androforge.data.LayoutOps
 import com.libexil.androforge.data.WidgetItem
 import com.libexil.androforge.data.moved
+import com.libexil.androforge.data.BELOW_DOCK
 import com.libexil.androforge.data.resized
 import com.libexil.androforge.data.isResizable
 import com.libexil.androforge.data.ForgeKind
@@ -92,7 +93,91 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     /** Cell size in px, published by the home grid (needed to size new widgets). */
     var cellWidthPx = 1
-    var cellHeightPx = 1
+    var cellHeightPx by mutableIntStateOf(1)
+
+    // ---- multi-select in the drawer
+    var selecting by mutableStateOf(false)
+    var selected by mutableStateOf<List<AppKey>>(emptyList())
+    var newFolderDialog by mutableStateOf(false)
+    /** Folder whose app picker is open ("" = picking apps for a brand-new folder). */
+    var folderPickerFor by mutableStateOf<String?>(null)
+    var folderPickerPage = 0
+
+    fun startSelecting(first: AppKey?) {
+        selecting = true
+        selected = listOfNotNull(first)
+    }
+
+    fun toggleSelected(key: AppKey) {
+        selected = if (key in selected) selected - key else selected + key
+    }
+
+    fun stopSelecting() {
+        selecting = false
+        selected = emptyList()
+    }
+
+    /** Puts [apps] in a new folder on the current page (one app = just the app). */
+    fun createFolder(name: String, apps: List<AppKey>, page: Int = currentPage) {
+        val list = apps.distinct()
+        if (list.isEmpty()) return
+        val item: HomeItem = if (list.size == 1) {
+            AppItem(newId(), app = list[0])
+        } else {
+            FolderItem(newId(), name = name.ifBlank { "Folder" }, apps = list)
+        }
+        store.update { LayoutOps.addToHome(it, item, page) }
+        if (page != currentPage) emit(UiEvent.ScrollToPage(page))
+        toast(if (list.size == 1) "Added to home screen" else "Folder \u201c${name.ifBlank { "Folder" }}\u201d created with ${list.size} apps")
+    }
+
+    fun addSelectedToHome() {
+        selected.forEach { k -> store.update { LayoutOps.addToHome(it, AppItem(newId(), app = k), currentPage) } }
+        toast("Added ${selected.size} apps to home")
+        stopSelecting()
+        emit(UiEvent.CloseDrawer)
+    }
+
+    fun hideSelected() {
+        val ids = selected.map { it.id }
+        store.update { it.copy(hidden = it.hidden + ids) }
+        stopSelecting()
+    }
+
+    /** Replace a folder's apps (from the multi-select picker). */
+    fun setFolderApps(folderId: String, apps: List<AppKey>) = store.update { s ->
+        fun fix(list: List<HomeItem>) = list.mapNotNull { item ->
+            if (item.id != folderId || item !is FolderItem) return@mapNotNull item
+            val keep = item.apps.filter { it in apps }
+            val merged = keep + apps.filter { it !in keep }
+            when {
+                merged.isEmpty() -> null
+                merged.size == 1 -> AppItem(item.id, item.page, item.x, item.y, merged[0])
+                else -> item.copy(apps = merged)
+            }
+        }
+        s.copy(items = fix(s.items), dock = fix(s.dock).mapIndexed { i, it -> it.moved(-1, i, 0) })
+    }
+
+    fun moveBelowDock(id: String) {
+        val s = state.value
+        val item = s.items.firstOrNull { it.id == id } ?: return
+        val cols = s.settings.columns
+        val rows = s.settings.belowDockRows
+        if (rows <= 0) {
+            toast("Turn on \u201cWidgets under the dock\u201d in settings first")
+            return
+        }
+        val sx = item.spanX.coerceAtMost(cols)
+        val sy = item.spanY.coerceAtMost(rows)
+        for (y in 0..(rows - sy)) for (x in 0..(cols - sx)) {
+            if (LayoutOps.fits(s, BELOW_DOCK, x, y, sx, sy, cols, rows, ignoreId = id)) {
+                store.update { st -> st.copy(items = st.items.map { if (it.id == id) it.resized(sx, sy).moved(BELOW_DOCK, x, y) else it }) }
+                return
+            }
+        }
+        toast("No room under the dock")
+    }
 
     private val _events = MutableSharedFlow<UiEvent>(extraBufferCapacity = 8)
     val events: SharedFlow<UiEvent> = _events
@@ -213,7 +298,9 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         val before = state.value.settings
         store.update { s ->
             val next = s.copy(settings = transform(s.settings))
-            if (next.settings.columns != s.settings.columns || next.settings.rows != s.settings.rows) {
+            if (next.settings.columns != s.settings.columns || next.settings.rows != s.settings.rows ||
+                next.settings.belowDockRows != s.settings.belowDockRows
+            ) {
                 LayoutOps.reflow(next)
             } else {
                 next
@@ -340,7 +427,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun resizeWidget(id: String, spanX: Int, spanY: Int): Boolean {
         val s = state.value
         val w = s.items.firstOrNull { it.id == id }?.takeIf { it.isResizable } ?: return false
-        if (!LayoutOps.fits(s, w.page, w.x, w.y, spanX, spanY, s.settings.columns, s.settings.rows, ignoreId = id)) {
+        if (!LayoutOps.fits(s, w.page, w.x, w.y, spanX, spanY, s.settings.columns, LayoutOps.rowsFor(s, w.page), ignoreId = id)) {
             toast("Not enough room - move things out of the way first")
             return false
         }
@@ -352,7 +439,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         val id = movingWidgetId ?: return
         val s = state.value
         val w = s.items.firstOrNull { it.id == id }?.takeIf { it.isResizable } ?: return
-        if (!LayoutOps.fits(s, page, x, y, w.spanX, w.spanY, s.settings.columns, s.settings.rows, ignoreId = id)) {
+        if (!LayoutOps.fits(s, page, x, y, w.spanX, w.spanY, s.settings.columns, LayoutOps.rowsFor(s, page), ignoreId = id)) {
             toast("It doesn't fit there")
             return
         }
@@ -366,6 +453,9 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun closeTopOverlay(): Boolean {
         when {
             menu != null -> menu = null
+            newFolderDialog -> newFolderDialog = false
+            folderPickerFor != null -> folderPickerFor = null
+            selecting -> stopSelecting()
             editForgeId != null -> editForgeId = null
             paletteBrowserOpen -> paletteBrowserOpen = false
             iconPickerFor != null -> iconPickerFor = null

@@ -25,8 +25,12 @@ sealed interface DropTarget {
 
 data class DropResult(val state: LauncherState, val message: String? = null)
 
+/** Page index of the widget row under the dock. */
+const val BELOW_DOCK = -2
+
 /** Pure layout transformations - no Android APIs, easy to reason about. */
 object LayoutOps {
+    fun rowsFor(s: LauncherState, page: Int): Int = if (page == BELOW_DOCK) s.settings.belowDockRows else s.settings.rows
 
     fun findFolder(s: LauncherState, id: String): FolderItem? =
         (s.items + s.dock).firstOrNull { it.id == id } as? FolderItem
@@ -105,8 +109,21 @@ object LayoutOps {
         when (target) {
             is DropTarget.HomeCell -> {
                 val cols = s.settings.columns
-                val rows = s.settings.rows
+                val rows = rowsFor(s, target.page)
                 if (target.x !in 0 until cols || target.y !in 0 until rows) return DropResult(s)
+                // Widgets (and anything bigger than one cell) need their whole footprint free.
+                if (item.spanX > 1 || item.spanY > 1 || item is WidgetItem || item is ForgeWidgetItem) {
+                    val base = removeSource(s, src)
+                    val sx = item.spanX.coerceAtMost(cols)
+                    val sy = item.spanY.coerceAtMost(rows)
+                    val x = target.x.coerceIn(0, cols - sx)
+                    val y = target.y.coerceIn(0, rows - sy)
+                    return if (fits(base, target.page, x, y, sx, sy, cols, rows, ignoreId = item.id)) {
+                        DropResult(base.copy(items = base.items + item.resized(sx, sy).moved(target.page, x, y)))
+                    } else {
+                        DropResult(s, "No room there")
+                    }
+                }
                 // Dropping onto its own folder = nothing to do.
                 if (src is DragSource.Folder) {
                     val occupant = s.items.firstOrNull { it.covers(target.page, target.x, target.y) }
@@ -171,10 +188,14 @@ object LayoutOps {
     /** Keep items inside the grid when the user shrinks columns/rows. */
     fun reflow(s: LauncherState): LauncherState {
         val cols = s.settings.columns
-        val rows = s.settings.rows
         var result = s.copy(items = emptyList())
         val misplaced = ArrayList<HomeItem>()
         for (item in s.items.sortedWith(compareBy({ it.page }, { it.y }, { it.x }))) {
+            val rows = rowsFor(s, item.page)
+            if (rows <= 0) {
+                misplaced += item.moved(0, 0, 0)
+                continue
+            }
             val sx = item.spanX.coerceAtMost(cols)
             val sy = item.spanY.coerceAtMost(rows)
             val sized = item.resized(sx, sy)
@@ -184,7 +205,7 @@ object LayoutOps {
                 misplaced += sized
             }
         }
-        for (item in misplaced) result = addToHome(result, item, item.page)
+        for (item in misplaced) result = addToHome(result, item, item.page.coerceAtLeast(0))
         return result
     }
 }

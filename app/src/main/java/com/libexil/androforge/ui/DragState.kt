@@ -39,15 +39,21 @@ class DragState {
     var page: Int = 0
     var cols: Int = 5
     var rows: Int = 6
+    var belowRect: Rect = Rect.Zero
+    var belowRows: Int = 0
+    /** Finger offset from the dragged item's top-left corner (used for multi-cell items). */
+    var grab by mutableStateOf(Offset.Zero)
+        private set
     var dockRect: Rect = Rect.Zero
     var dockSlots: List<Rect> = emptyList()
     var removeRect: Rect = Rect.Zero
     var infoRect: Rect = Rect.Zero
     var uninstallRect: Rect = Rect.Zero
 
-    fun start(source: DragSource, item: HomeItem, at: Offset) {
+    fun start(source: DragSource, item: HomeItem, at: Offset, grab: Offset = Offset.Zero) {
         this.source = source
         this.item = item
+        this.grab = grab
         position = at
         moved = false
         travelled = 0f
@@ -72,7 +78,27 @@ class DragState {
         if (removeRect.contains(p)) return DropTarget.Remove
         if (infoRect.contains(p)) return DropTarget.Info
         if (uninstallRect.contains(p)) return DropTarget.Uninstall
-        if (dockRect != Rect.Zero && dockRect.inflate(12f).contains(p)) {
+        val big = item?.let { it.spanX > 1 || it.spanY > 1 } == true
+        fun cell(r: Rect, rowsHere: Int, page: Int): DropTarget {
+            val cw = r.width / cols
+            val ch = r.height / rowsHere
+            val it = item
+            return if (big && it != null) {
+                // Snap the item's top-left corner, keeping the spot you grabbed it by under your finger.
+                val x = ((p.x - grab.x - r.left) / cw + 0.5f).toInt().coerceIn(0, (cols - it.spanX).coerceAtLeast(0))
+                val y = ((p.y - grab.y - r.top) / ch + 0.5f).toInt().coerceIn(0, (rowsHere - it.spanY).coerceAtLeast(0))
+                DropTarget.HomeCell(page, x, y)
+            } else {
+                val x = ((p.x - r.left) / cw).toInt().coerceIn(0, cols - 1)
+                val y = ((p.y - r.top) / ch).toInt().coerceIn(0, rowsHere - 1)
+                DropTarget.HomeCell(page, x, y)
+            }
+        }
+        if (belowRows > 0 && belowRect != Rect.Zero && belowRect.contains(p)) {
+            return cell(belowRect, belowRows, com.libexil.androforge.data.BELOW_DOCK)
+        }
+        val isWidget = item is com.libexil.androforge.data.WidgetItem || item is com.libexil.androforge.data.ForgeWidgetItem
+        if (!isWidget && dockRect != Rect.Zero && dockRect.inflate(12f).contains(p)) {
             dockSlots.forEachIndexed { i, r ->
                 if (p.x >= r.left && p.x <= r.right && abs(p.x - r.center.x) < r.width * 0.28f) {
                     return DropTarget.Dock(i, onto = true)
@@ -82,11 +108,7 @@ class DragState {
             return DropTarget.Dock(index, onto = false)
         }
         if (gridRect != Rect.Zero && gridRect.contains(p) && cols > 0 && rows > 0) {
-            val cw = gridRect.width / cols
-            val ch = gridRect.height / rows
-            val x = ((p.x - gridRect.left) / cw).toInt().coerceIn(0, cols - 1)
-            val y = ((p.y - gridRect.top) / ch).toInt().coerceIn(0, rows - 1)
-            return DropTarget.HomeCell(page, x, y)
+            return cell(gridRect, rows, page)
         }
         return DropTarget.None
     }
@@ -103,9 +125,11 @@ fun Modifier.launcherGestures(
     onLongPress: (Offset) -> Unit,
     onDrag: (Offset) -> Unit = {},
     onDragEnd: () -> Unit = {},
+    onPress: (Boolean) -> Unit = {},
 ): Modifier = pointerInput(key, enabled) {
     awaitEachGesture {
         val down = awaitFirstDown(requireUnconsumed = true)
+        onPress(true)
         val slop = viewConfiguration.touchSlop
         var last = down.position
         // 1 = tap, 2 = cancelled, null = long press
@@ -126,6 +150,7 @@ fun Modifier.launcherGestures(
             }
             res
         }
+        onPress(false)
         when (outcome) {
             1 -> onTap()
             2 -> Unit

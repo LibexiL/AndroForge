@@ -97,6 +97,7 @@ fun Dock(
     val accent = LocalAccent.current
     val density = LocalDensity.current
     val haptic = LocalHapticFeedback.current
+    val motion = LocalMotion.current
 
     val pinned = state.dock
     val pinnedApps = remember(pinned) {
@@ -140,7 +141,7 @@ fun Dock(
             }
             animateFloatAsState(
                 target,
-                animationSpec = spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMediumLow),
+                animationSpec = motion.spring(stiffness = 420f),
                 label = "dock-scale",
             ).value
         }
@@ -372,12 +373,13 @@ private fun DockSlot(
 ) {
     val accent = LocalAccent.current
     val bounceAnim = remember { Animatable(0f) }
+    val motion = LocalMotion.current
     val bouncePx = with(LocalDensity.current) { 14.dp.toPx() }
     LaunchedEffect(bounce) {
         if (bounce > 0) {
             repeat(2) {
-                bounceAnim.animateTo(-1f, tween(140))
-                bounceAnim.animateTo(0f, spring(dampingRatio = 0.45f, stiffness = 900f))
+                bounceAnim.animateTo(-1f, motion.tween(140))
+                bounceAnim.animateTo(0f, motion.spring(stiffness = 900f))
             }
         }
     }

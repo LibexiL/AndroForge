@@ -128,6 +128,7 @@ import com.libexil.androforge.live.SystemMonitor
 import com.libexil.androforge.live.WeatherRepo
 import com.libexil.androforge.live.WeatherState
 import com.libexil.androforge.ui.Pal
+import com.libexil.androforge.ui.Motion
 import com.libexil.androforge.ui.forge.AlbumArt
 import com.libexil.androforge.ui.forge.Transport
 import com.libexil.androforge.ui.forge.TransportIcon
@@ -155,6 +156,7 @@ fun IslandContent(service: AccessibilityService, geo: IslandGeometry) {
     val state by LauncherApp.instance.store.state.collectAsState()
     val s = state.settings
     val pal = rememberPalette(s)
+    val motion = remember(s.animations, s.animScale, s.animBounce) { Motion.of(s) }
     val media by MediaHub.state.collectAsState()
     val peekPair by NotifHub.peek.collectAsState()
     val entries by NotifHub.entries.collectAsState()
@@ -254,6 +256,7 @@ fun IslandContent(service: AccessibilityService, geo: IslandGeometry) {
             corner = if (big) 30.dp else h / 2,
             bg = colors.bg,
             border = if (glow) Brush.linearGradient(pal.gradient.map { it.copy(alpha = 0.75f) }) else null,
+            motion = motion,
             modifier = Modifier
                 .pointerInput(mode, m?.pkg, peek?.key, live?.key, ongoingCall?.key) {
                     detectTapGestures(
@@ -311,7 +314,7 @@ fun IslandContent(service: AccessibilityService, geo: IslandGeometry) {
                 targetState = mode,
                 modifier = Modifier.widthIn(max = maxW),
                 transitionSpec = {
-                    (fadeIn(tween(200, delayMillis = 90)) togetherWith fadeOut(tween(90)))
+                    (fadeIn(motion.tween(200, delay = 90)) togetherWith fadeOut(motion.tween(90)))
                         .using(SizeTransform(clip = false) { _, _ -> snap() })
                 },
                 contentAlignment = Alignment.TopCenter,
@@ -379,12 +382,12 @@ fun IslandContent(service: AccessibilityService, geo: IslandGeometry) {
  * so nothing is re-laid-out per frame.
  */
 @Composable
-private fun IslandMorph(corner: Dp, bg: Brush, border: Brush?, modifier: Modifier, content: @Composable () -> Unit) {
+private fun IslandMorph(corner: Dp, bg: Brush, border: Brush?, motion: Motion, modifier: Modifier, content: @Composable () -> Unit) {
     var target by remember { mutableStateOf(IntSize.Zero) }
     var hold by remember { mutableStateOf(IntSize.Zero) }
     val w = remember { Animatable(0f) }
     val hh = remember { Animatable(0f) }
-    val radius = animateDpAsState(corner, spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMedium), label = "radius")
+    val radius = animateDpAsState(corner, motion.spring(stiffness = 600f), label = "radius")
     LaunchedEffect(target) {
         if (target == IntSize.Zero) return@LaunchedEffect
         if (w.value == 0f) {
@@ -395,8 +398,8 @@ private fun IslandMorph(corner: Dp, bg: Brush, border: Brush?, modifier: Modifie
         }
         hold = IntSize(maxOf(hold.width, target.width), maxOf(hold.height, target.height))
         coroutineScope {
-            launch { w.animateTo(target.width.toFloat(), spring(dampingRatio = 0.78f, stiffness = 520f)) }
-            launch { hh.animateTo(target.height.toFloat(), spring(dampingRatio = 0.82f, stiffness = 520f)) }
+            launch { w.animateTo(target.width.toFloat(), motion.spring(stiffness = 520f)) }
+            launch { hh.animateTo(target.height.toFloat(), motion.spring(stiffness = 520f)) }
         }
         hold = target
     }

@@ -90,6 +90,17 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.pager.PagerDefaults
+import androidx.compose.runtime.mutableStateOf
+import com.libexil.androforge.data.BELOW_DOCK
+import com.libexil.androforge.data.LayoutOps
 import android.Manifest
 import com.libexil.androforge.ui.forge.ForgeActions
 import com.libexil.androforge.ui.forge.ForgeEditor
@@ -117,6 +128,7 @@ class DrawerController(private val scope: CoroutineScope) {
     var progress by mutableFloatStateOf(0f)
         private set
     var heightPx = 1f
+    var motion: Motion = Motion.Default
     private var job: Job? = null
 
     val isOpen: Boolean get() = progress > 0.001f
@@ -146,7 +158,7 @@ class DrawerController(private val scope: CoroutineScope) {
     private fun animateTo(target: Float) {
         job?.cancel()
         job = scope.launch {
-            animate(progress, target, animationSpec = spring(dampingRatio = 0.86f, stiffness = 420f)) { v, _ ->
+            animate(progress, target, animationSpec = motion.spring(stiffness = 420f, visibilityThreshold = 0.001f)) { v, _ ->
                 progress = v
             }
         }
@@ -165,6 +177,8 @@ fun LauncherScreen(vm: LauncherViewModel, host: LauncherHost) {
     val drag = remember { DragState() }
     val drawer = remember { DrawerController(scope) }
     val pagerState = rememberPagerState { state.pageCount }
+    val motion = remember(settings.animations, settings.animScale, settings.animBounce) { Motion.of(settings) }
+    SideEffect { drawer.motion = motion }
     val context = LocalContext.current
     val density = LocalDensity.current
     drag.moveThresholdPx = with(density) { 12.dp.toPx() }
@@ -194,7 +208,9 @@ fun LauncherScreen(vm: LauncherViewModel, host: LauncherHost) {
             when (e) {
                 UiEvent.OpenDrawer -> drawer.open()
                 UiEvent.CloseDrawer -> drawer.close()
-                is UiEvent.ScrollToPage -> if (e.page < pagerState.pageCount) pagerState.animateScrollToPage(e.page)
+                is UiEvent.ScrollToPage -> if (e.page < pagerState.pageCount) {
+                    pagerState.animateScrollToPage(e.page, animationSpec = motion.spring(stiffness = 300f, bouncy = false))
+                }
             }
         }
     }
@@ -222,6 +238,7 @@ fun LauncherScreen(vm: LauncherViewModel, host: LauncherHost) {
         LocalLabels provides state.labels,
         LocalAccent provides accent,
         LocalPalette provides palette,
+        LocalMotion provides motion,
     ) {
         AndroForgeTheme(accent) {
             BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -287,6 +304,31 @@ fun LauncherScreen(vm: LauncherViewModel, host: LauncherHost) {
                         drag.dockSlots = emptyList()
                         Spacer(Modifier.height(12.dp))
                     }
+                    val belowRows = settings.belowDockRows
+                    SideEffect { drag.belowRows = belowRows }
+                    if (belowRows > 0) {
+                        val rowH = with(density) { vm.cellHeightPx.toDp() }.coerceIn(56.dp, 140.dp)
+                        Box(
+                            Modifier
+                                .fillMaxWidth()
+                                .height(rowH * belowRows)
+                                .padding(horizontal = 6.dp)
+                                .onGloballyPositioned { drag.belowRect = it.boundsInRoot() },
+                        ) {
+                            if (drag.active && state.items.none { it.page == BELOW_DOCK }) {
+                                Box(
+                                    Modifier
+                                        .fillMaxSize()
+                                        .padding(6.dp)
+                                        .border(1.5.dp, accent.copy(alpha = 0.5f), RoundedCornerShape(20.dp)),
+                                    contentAlignment = Alignment.Center,
+                                ) { Text("Drop widgets here", color = Color.White.copy(alpha = 0.7f), fontSize = 13.sp) }
+                            }
+                            HomePage(BELOW_DOCK, belowRows, vm, state, appsById, drag, host, onDragEnd, {}, publishCells = false)
+                        }
+                    } else {
+                        drag.belowRect = Rect.Zero
+                    }
                 }
 
                 DragTargetsBar(drag)
@@ -328,13 +370,21 @@ fun LauncherScreen(vm: LauncherViewModel, host: LauncherHost) {
 
                 if (vm.widgetPickerPage != null) WidgetPicker(vm, host)
 
-                if (vm.settingsOpen) SettingsScreen(vm, host, state, apps)
+                AnimatedVisibility(
+                    visible = vm.settingsOpen,
+                    enter = fadeIn(motion.tween(160)) + slideInVertically(motion.tween(260)) { it / 9 },
+                    exit = fadeOut(motion.tween(140)) + slideOutVertically(motion.tween(200)) { it / 12 },
+                ) { SettingsScreen(vm, host, state, apps) }
+
+                if (vm.selecting) SelectionBar(vm, state)
+                if (vm.newFolderDialog) NewFolderDialog(vm)
+                vm.folderPickerFor?.let { id -> FolderAppPicker(vm, state, apps, id) }
 
                 if (vm.paletteBrowserOpen) PaletteBrowser(vm)
 
                 UpdateDialog(vm)
 
-                DragGhost(drag, settings.iconSizeDp)
+                DragGhost(drag, settings.iconSizeDp, vm)
             }
         }
     }
@@ -351,10 +401,11 @@ private fun PageIndicator(pagerState: PagerState, accent: Color) {
     ) {
         repeat(pagerState.pageCount) { i ->
             val selected = pagerState.currentPage == i
+            val w by animateDpAsState(if (selected) 18.dp else 6.dp, LocalMotion.current.spring(stiffness = 700f), label = "dot")
             Box(
                 Modifier
                     .padding(horizontal = 4.dp)
-                    .size(width = if (selected) 18.dp else 6.dp, height = 6.dp)
+                    .size(width = w, height = 6.dp)
                     .clip(CircleShape)
                     .background(if (selected) accent else Color.White.copy(alpha = 0.45f))
                     .pointerInput(i) { detectTapGestures { scope.launch { pagerState.animateScrollToPage(i) } } },
@@ -430,14 +481,19 @@ private fun HomePager(
             .onGloballyPositioned { drag.gridRect = it.boundsInRoot() },
         beyondViewportPageCount = 1,
         key = { it },
+        flingBehavior = PagerDefaults.flingBehavior(
+            state = pagerState,
+            snapAnimationSpec = LocalMotion.current.spring(stiffness = 380f, visibilityThreshold = 0.5f, bouncy = false),
+        ),
     ) { page ->
-        HomePage(page, vm, state, appsById, drag, host, onDragEnd, onDoubleTap)
+        HomePage(page, settings.rows, vm, state, appsById, drag, host, onDragEnd, onDoubleTap)
     }
 }
 
 @Composable
 private fun HomePage(
     page: Int,
+    rows: Int,
     vm: LauncherViewModel,
     state: LauncherState,
     appsById: Map<String, AppInfo>,
@@ -445,10 +501,10 @@ private fun HomePage(
     host: LauncherHost,
     onDragEnd: () -> Unit,
     onDoubleTap: () -> Unit,
+    publishCells: Boolean = true,
 ) {
     val settings = state.settings
     val cols = settings.columns
-    val rows = settings.rows
     val origin = remember { PosHolder() }
     val currentDoubleTap by rememberUpdatedState(onDoubleTap)
 
@@ -462,8 +518,10 @@ private fun HomePage(
         val cellWpx = constraints.maxWidth.toFloat() / cols
         val cellHpx = constraints.maxHeight.toFloat() / rows
         SideEffect {
-            vm.cellWidthPx = cellWpx.roundToInt()
-            vm.cellHeightPx = cellHpx.roundToInt()
+            if (publishCells) {
+                vm.cellWidthPx = cellWpx.roundToInt()
+                vm.cellHeightPx = cellHpx.roundToInt()
+            }
         }
 
         Box(
@@ -484,23 +542,26 @@ private fun HomePage(
                 },
         )
 
-        DropHighlight(drag, page, cellW, cellH)
+        DropHighlight(drag, page, rows, cellW, cellH, state)
 
         state.items.filter { it.page == page }.forEach { item ->
             key(item.id) {
-                val hidden = drag.active && drag.source is DragSource.Home && drag.item?.id == item.id
+                val dragged = drag.active && drag.source is DragSource.Home && drag.item?.id == item.id
+                val isWidget = item is WidgetItem || item is ForgeWidgetItem
+                val motion = LocalMotion.current
+                val a by animateFloatAsState(if (dragged) (if (isWidget) 0.3f else 0f) else 1f, motion.tween(120), label = "lift")
                 Box(
                     Modifier
                         .offset(x = cellW * item.x, y = cellH * item.y)
                         .size(width = cellW * item.spanX, height = cellH * item.spanY)
-                        .graphicsLayer { alpha = if (hidden) 0f else 1f },
+                        .graphicsLayer { alpha = a },
                 ) {
                     when (item) {
                         is AppItem -> HomeAppCell(item, appsById[item.app.id]?.label, vm, drag, onDragEnd)
                         is FolderItem -> HomeFolderCell(item, vm, drag, onDragEnd)
-                        is ForgeWidgetItem -> ForgeWidgetCell(item, vm, host)
+                        is ForgeWidgetItem -> ForgeWidgetCell(item, vm, host, drag, onDragEnd)
                         is WidgetItem -> WidgetCell(
-                            item, vm, host,
+                            item, vm, host, drag, onDragEnd,
                             widthDp = (cellW * item.spanX).value.roundToInt(),
                             heightDp = (cellH * item.spanY).value.roundToInt(),
                         )
@@ -512,19 +573,34 @@ private fun HomePage(
 }
 
 @Composable
-private fun DropHighlight(drag: DragState, page: Int, cellW: androidx.compose.ui.unit.Dp, cellH: androidx.compose.ui.unit.Dp) {
+private fun DropHighlight(
+    drag: DragState,
+    page: Int,
+    rows: Int,
+    cellW: androidx.compose.ui.unit.Dp,
+    cellH: androidx.compose.ui.unit.Dp,
+    state: LauncherState,
+) {
     if (!drag.active) return
     val target = drag.target()
     if (target !is DropTarget.HomeCell || target.page != page) return
-    val accent = LocalAccent.current
+    val item = drag.item ?: return
+    val big = item.spanX > 1 || item.spanY > 1 || item is WidgetItem || item is ForgeWidgetItem
+    val sx = if (big) item.spanX.coerceAtMost(state.settings.columns) else 1
+    val sy = if (big) item.spanY.coerceAtMost(rows) else 1
+    val ok = !big || LayoutOps.fits(state, page, target.x, target.y, sx, sy, state.settings.columns, rows, ignoreId = item.id)
+    val color = if (ok) LocalAccent.current else Color(0xFFE5484D)
+    val motion = LocalMotion.current
+    val x by animateDpAsState(cellW * target.x, motion.spring(stiffness = 900f), label = "hx")
+    val y by animateDpAsState(cellH * target.y, motion.spring(stiffness = 900f), label = "hy")
     Box(
         Modifier
-            .offset(x = cellW * target.x, y = cellH * target.y)
-            .size(cellW, cellH)
+            .offset(x = x, y = y)
+            .size(cellW * sx, cellH * sy)
             .padding(5.dp)
             .clip(RoundedCornerShape(18.dp))
-            .background(accent.copy(alpha = 0.16f))
-            .border(1.5.dp, accent.copy(alpha = 0.7f), RoundedCornerShape(18.dp)),
+            .background(color.copy(alpha = 0.16f))
+            .border(1.5.dp, color.copy(alpha = 0.75f), RoundedCornerShape(18.dp)),
     )
 }
 
@@ -536,6 +612,7 @@ private fun HomeAppCell(item: AppItem, appLabel: String?, vm: LauncherViewModel,
     val current by rememberUpdatedState(item)
     val locked by rememberUpdatedState(settings.lockLayout)
     val endDrag by rememberUpdatedState(onDragEnd)
+    var pressed by remember { mutableStateOf(false) }
     IconWithLabel(
         label = labelFor(item.app, appLabel),
         showLabel = settings.showLabels,
@@ -556,8 +633,9 @@ private fun HomeAppCell(item: AppItem, appLabel: String?, vm: LauncherViewModel,
                     if (drag.moved) vm.menu = null
                 },
                 onDragEnd = { endDrag() },
+                onPress = { pressed = it },
             ),
-    ) { AppIcon(item.app, settings.iconSizeDp.dp) }
+    ) { AppIcon(item.app, settings.iconSizeDp.dp, Modifier.pressScale(pressed)) }
 }
 
 @Composable
@@ -568,6 +646,7 @@ private fun HomeFolderCell(item: FolderItem, vm: LauncherViewModel, drag: DragSt
     val current by rememberUpdatedState(item)
     val locked by rememberUpdatedState(settings.lockLayout)
     val endDrag by rememberUpdatedState(onDragEnd)
+    var pressed by remember { mutableStateOf(false) }
     IconWithLabel(
         label = item.name,
         showLabel = settings.showLabels,
@@ -588,14 +667,43 @@ private fun HomeFolderCell(item: FolderItem, vm: LauncherViewModel, drag: DragSt
                     if (drag.moved) vm.menu = null
                 },
                 onDragEnd = { endDrag() },
+                onPress = { pressed = it },
             ),
-    ) { FolderIcon(item, settings.iconSizeDp.dp) }
+    ) { FolderIcon(item, settings.iconSizeDp.dp, Modifier.pressScale(pressed)) }
 }
 
+/** Long-press a widget for its menu; keep holding and move to drag it anywhere. */
+private fun Modifier.widgetDrag(
+    item: HomeItem,
+    pos: PosHolder,
+    vm: LauncherViewModel,
+    drag: DragState,
+    locked: () -> Boolean,
+    haptic: androidx.compose.ui.hapticfeedback.HapticFeedback,
+    onDragEnd: () -> Unit,
+): Modifier = launcherGestures(
+    key = item.id,
+    onTap = {},
+    onLongPress = { off ->
+        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+        val at = pos.pos + off
+        vm.menu = MenuRequest(at, MenuTarget.Home(item, inDock = false))
+        if (!locked()) drag.start(DragSource.Home(item.id), item, at, grab = off)
+    },
+    onDrag = { d ->
+        drag.moveBy(d)
+        if (drag.moved) vm.menu = null
+    },
+    onDragEnd = onDragEnd,
+)
+
 @Composable
-private fun ForgeWidgetCell(item: ForgeWidgetItem, vm: LauncherViewModel, host: LauncherHost) {
+private fun ForgeWidgetCell(item: ForgeWidgetItem, vm: LauncherViewModel, host: LauncherHost, drag: DragState, onDragEnd: () -> Unit) {
     val pos = remember { PosHolder() }
     val current by rememberUpdatedState(item)
+    val settings = LocalSettings.current
+    val locked by rememberUpdatedState(settings.lockLayout)
+    val endDrag by rememberUpdatedState(onDragEnd)
     val actions = remember(host, vm) {
         object : ForgeActions {
             override fun requestAudio() = host.requestPermission(Manifest.permission.RECORD_AUDIO)
@@ -611,22 +719,29 @@ private fun ForgeWidgetCell(item: ForgeWidgetItem, vm: LauncherViewModel, host: 
         Modifier
             .fillMaxSize()
             .trackPosition(pos)
-            .pointerInput(item.id) {
-                detectTapGestures(onLongPress = { off ->
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    vm.menu = MenuRequest(pos.pos + off, MenuTarget.Home(current, inDock = false))
-                })
-            },
+            .widgetDrag(item, pos, vm, drag, { locked }, haptic) { endDrag() },
     ) {
         ForgeWidget(item, LocalPalette.current, actions)
     }
 }
 
 @Composable
-private fun WidgetCell(item: WidgetItem, vm: LauncherViewModel, host: LauncherHost, widthDp: Int, heightDp: Int) {
+private fun WidgetCell(
+    item: WidgetItem,
+    vm: LauncherViewModel,
+    host: LauncherHost,
+    drag: DragState,
+    onDragEnd: () -> Unit,
+    widthDp: Int,
+    heightDp: Int,
+) {
     val pos = remember { PosHolder() }
     val view = remember(item.widgetId) { host.widgetView(item) }
     val current by rememberUpdatedState(item)
+    val settings = LocalSettings.current
+    val locked by rememberUpdatedState(settings.lockLayout)
+    val endDrag by rememberUpdatedState(onDragEnd)
+    val haptic = LocalHapticFeedback.current
     if (view == null) {
         Box(
             Modifier
@@ -635,21 +750,28 @@ private fun WidgetCell(item: WidgetItem, vm: LauncherViewModel, host: LauncherHo
                 .clip(RoundedCornerShape(20.dp))
                 .background(Color.Black.copy(alpha = 0.35f))
                 .trackPosition(pos)
-                .pointerInput(item.id) {
-                    detectTapGestures(onLongPress = { off ->
-                        vm.menu = MenuRequest(pos.pos + off, MenuTarget.Home(current, inDock = false))
-                    })
-                },
+                .widgetDrag(item, pos, vm, drag, { locked }, haptic) { endDrag() },
             contentAlignment = Alignment.Center,
         ) {
             Text("Widget unavailable", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
         }
         return
     }
+    val padPx = with(LocalDensity.current) { 4.dp.toPx() }
     AndroidView(
         factory = { ctx -> WidgetFrame(ctx).apply { setWidget(view) } },
         update = { frame ->
-            frame.onLongPress = { vm.menu = MenuRequest(pos.center, MenuTarget.Home(current, inDock = false)) }
+            frame.onLongPress = { x, y ->
+                val grab = Offset(x + padPx, y + padPx)
+                val at = pos.pos + Offset(x, y)
+                vm.menu = MenuRequest(at, MenuTarget.Home(current, inDock = false))
+                if (!locked) drag.start(DragSource.Home(current.id), current, at, grab = grab)
+            }
+            frame.onDrag = { dx, dy ->
+                drag.moveBy(Offset(dx, dy))
+                if (drag.moved) vm.menu = null
+            }
+            frame.onDragEnd = { endDrag() }
             frame.updateSize(widthDp, heightDp)
         },
         modifier = Modifier
@@ -715,9 +837,35 @@ private fun DropTargetChip(
 }
 
 @Composable
-private fun DragGhost(drag: DragState, iconSizeDp: Int) {
+private fun DragGhost(drag: DragState, iconSizeDp: Int, vm: LauncherViewModel) {
     if (!drag.active) return
     val item: HomeItem = drag.item ?: return
+    val motion = LocalMotion.current
+    val lift = remember { androidx.compose.animation.core.Animatable(1f) }
+    LaunchedEffect(item.id) { lift.animateTo(1.1f, motion.spring(stiffness = 900f)) }
+    val accent = LocalAccent.current
+    if (item is WidgetItem || item is ForgeWidgetItem) {
+        val density = LocalDensity.current
+        val w = vm.cellWidthPx * item.spanX
+        val h = vm.cellHeightPx * item.spanY
+        Box(
+            Modifier
+                .offset { IntOffset((drag.position.x - drag.grab.x).roundToInt(), (drag.position.y - drag.grab.y).roundToInt()) }
+                .size(with(density) { w.toDp() }, with(density) { h.toDp() })
+                .graphicsLayer {
+                    scaleX = 0.94f + (lift.value - 1f) * 0.3f
+                    scaleY = scaleX
+                }
+                .padding(6.dp)
+                .clip(RoundedCornerShape(22.dp))
+                .background(accent.copy(alpha = 0.2f))
+                .border(2.dp, accent, RoundedCornerShape(22.dp)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("${item.spanX} × ${item.spanY}", color = Color.White, fontSize = 14.sp)
+        }
+        return
+    }
     val size = (iconSizeDp + 6).dp
     val px = with(LocalDensity.current) { size.toPx() }
     Box(
@@ -725,8 +873,8 @@ private fun DragGhost(drag: DragState, iconSizeDp: Int) {
             .offset { IntOffset((drag.position.x - px / 2).roundToInt(), (drag.position.y - px * 0.75f).roundToInt()) }
             .size(size)
             .graphicsLayer {
-                scaleX = 1.12f
-                scaleY = 1.12f
+                scaleX = lift.value
+                scaleY = lift.value
                 alpha = 0.95f
             },
     ) {

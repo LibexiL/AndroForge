@@ -27,6 +27,20 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
+import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -119,6 +133,7 @@ fun AppDrawer(
     }
     val dragging = drag.source != null
     LaunchedEffect(closed, dragging) {
+        if (closed) vm.stopSelecting()
         if (closed && !dragging) {
             query = ""
             keyboard?.hide()
@@ -242,13 +257,24 @@ fun AppDrawer(
         }
 
         val cols = settings.drawerColumns
+        val showSugg = query.isBlank() && suggestions.isNotEmpty()
+        val fastScroll = settings.drawerFastScroll && query.isBlank() && filtered.size > cols * 4
+        // First grid index for each letter (apps are sorted by label).
+        val letterIndex = remember(filtered, showSugg, suggestions.size) {
+            val offset = if (showSugg) suggestions.size + 2 else 0
+            val map = LinkedHashMap<Char, Int>()
+            filtered.forEachIndexed { i, a -> map.getOrPut(letterOf(labelOf(a))) { offset + i } }
+            map
+        }
+        val scope = rememberCoroutineScope()
+        Box(Modifier.fillMaxSize()) {
         LazyVerticalGrid(
             columns = GridCells.Fixed(cols),
             state = gridState,
             modifier = Modifier
                 .fillMaxSize()
                 .nestedScroll(connection)
-                .padding(horizontal = 8.dp),
+                .padding(start = 8.dp, end = if (fastScroll) 26.dp else 8.dp),
         ) {
             if (query.isBlank() && suggestions.isNotEmpty()) {
                 item(key = "sugg-title", span = { GridItemSpan(maxLineSpan) }) {
@@ -288,7 +314,123 @@ fun AppDrawer(
                     )
                 }
             }
-            item(key = "bottom-space", span = { GridItemSpan(maxLineSpan) }) { Spacer(Modifier.height(24.dp)) }
+            item(key = "bottom-space", span = { GridItemSpan(maxLineSpan) }) { Spacer(Modifier.height(if (vm.selecting) 96.dp else 24.dp)) }
+        }
+        if (fastScroll) {
+            val current by remember(letterIndex) {
+                derivedStateOf {
+                    val first = gridState.firstVisibleItemIndex
+                    letterIndex.entries.lastOrNull { it.value <= first }?.key
+                }
+            }
+            AlphaScroller(
+                available = letterIndex.keys,
+                current = current,
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .fillMaxHeight()
+                    .padding(vertical = 8.dp),
+            ) { letter, animate ->
+                val idx = letterIndex[letter]
+                    ?: ALPHABET.drop(ALPHABET.indexOf(letter)).firstNotNullOfOrNull { letterIndex[it] }
+                    ?: return@AlphaScroller
+                scope.launch { if (animate) gridState.animateScrollToItem(idx) else gridState.scrollToItem(idx) }
+            }
+        }
+        }
+    }
+}
+
+private val ALPHABET: List<Char> = listOf('#') + ('A'..'Z').toList()
+
+private fun letterOf(label: String): Char {
+    val c = label.trim().firstOrNull()?.uppercaseChar() ?: return '#'
+    return if (c in 'A'..'Z') c else '#'
+}
+
+/** The A-Z strip on the side of the drawer: drag along it to fly through your apps. */
+@Composable
+private fun AlphaScroller(
+    available: Set<Char>,
+    current: Char?,
+    modifier: Modifier,
+    onLetter: (Char, Boolean) -> Unit,
+) {
+    val accent = LocalAccent.current
+    val haptic = LocalHapticFeedback.current
+    val motion = LocalMotion.current
+    var active by remember { mutableStateOf<Char?>(null) }
+    var fingerY by remember { mutableStateOf(0f) }
+    val density = LocalDensity.current
+    val letters = ALPHABET
+    Box(modifier.width(24.dp)) {
+        Column(
+            Modifier
+                .fillMaxHeight()
+                .width(24.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(if (active != null) Color.White.copy(alpha = 0.08f) else Color.Transparent)
+                .pointerInput(available) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown()
+                        down.consume()
+                        fun pick(y: Float, animate: Boolean) {
+                            fingerY = y.coerceIn(0f, size.height.toFloat())
+                            val i = (fingerY / size.height * letters.size).toInt().coerceIn(0, letters.size - 1)
+                            val l = letters[i]
+                            if (l != active) {
+                                active = l
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                onLetter(l, animate)
+                            }
+                        }
+                        pick(down.position.y, animate = false)
+                        while (true) {
+                            val ev = awaitPointerEvent()
+                            val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
+                            if (!ch.pressed) break
+                            ch.consume()
+                            pick(ch.position.y, animate = false)
+                        }
+                        active = null
+                    }
+                },
+            verticalArrangement = Arrangement.SpaceEvenly,
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            letters.forEach { l ->
+                val on = l in available
+                val highlight = l == (active ?: current)
+                Text(
+                    l.toString(),
+                    fontSize = 10.5.sp,
+                    fontWeight = if (highlight) FontWeight.Bold else FontWeight.Normal,
+                    color = when {
+                        highlight -> accent
+                        on -> Color.White.copy(alpha = 0.8f)
+                        else -> Color.White.copy(alpha = 0.25f)
+                    },
+                )
+            }
+        }
+        // Big letter bubble beside your finger.
+        androidx.compose.animation.AnimatedVisibility(
+            visible = active != null,
+            enter = androidx.compose.animation.scaleIn(motion.spring(stiffness = 900f)) + androidx.compose.animation.fadeIn(motion.tween(90)),
+            exit = androidx.compose.animation.scaleOut(motion.tween(120)) + androidx.compose.animation.fadeOut(motion.tween(120)),
+            modifier = Modifier.offset {
+                IntOffset(with(density) { (-76).dp.roundToPx() }, (fingerY - with(density) { 30.dp.toPx() }).roundToInt())
+            },
+        ) {
+            var shown by remember { mutableStateOf(' ') }
+            active?.let { shown = it }
+            Box(
+                Modifier
+                    .size(60.dp)
+                    .clip(RoundedCornerShape(topStartPercent = 50, topEndPercent = 50, bottomStartPercent = 50, bottomEndPercent = 12))
+                    .background(accent),
+                contentAlignment = Alignment.Center,
+            ) { Text(shown.toString(), color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold) }
         }
     }
 }
@@ -310,29 +452,73 @@ private fun DrawerAppCell(app: AppInfo, label: String, vm: LauncherViewModel, dr
     val pos = remember { PosHolder() }
     val haptic = LocalHapticFeedback.current
     val endDrag by rememberUpdatedState(onDragEnd)
+    var pressed by remember { mutableStateOf(false) }
+    val selecting = vm.selecting
+    val isSelected = selecting && app.key in vm.selected
+    val accent = LocalAccent.current
+    val motion = LocalMotion.current
+    val selScale by androidx.compose.animation.core.animateFloatAsState(
+        if (isSelected) 0.86f else 1f, motion.spring(stiffness = 900f), label = "sel",
+    )
     Column(
         Modifier
             .fillMaxWidth()
             .padding(vertical = 10.dp)
             .trackPosition(pos)
             .launcherGestures(
-                key = app.key.id,
-                onTap = { vm.launch(app.key, pos.rect()) },
+                key = app.key.id to selecting,
+                onTap = {
+                    if (selecting) {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        vm.toggleSelected(app.key)
+                    } else {
+                        vm.launch(app.key, pos.rect())
+                    }
+                },
                 onLongPress = { off ->
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    val at = pos.pos + off
-                    vm.menu = MenuRequest(at, MenuTarget.DrawerApp(app.key))
-                    drag.start(DragSource.Drawer(app.key), AppItem(newId(), app = app.key), at)
+                    if (selecting) {
+                        vm.toggleSelected(app.key)
+                    } else {
+                        val at = pos.pos + off
+                        vm.menu = MenuRequest(at, MenuTarget.DrawerApp(app.key))
+                        drag.start(DragSource.Drawer(app.key), AppItem(newId(), app = app.key), at)
+                    }
                 },
                 onDrag = { d ->
-                    drag.moveBy(d)
-                    if (drag.moved) vm.menu = null
+                    if (!selecting) {
+                        drag.moveBy(d)
+                        if (drag.moved) vm.menu = null
+                    }
                 },
-                onDragEnd = { endDrag() },
+                onDragEnd = { if (!selecting) endDrag() },
+                onPress = { pressed = it },
             ),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        AppIcon(app.key, settings.iconSizeDp.dp)
+        Box(contentAlignment = Alignment.TopEnd) {
+            AppIcon(
+                app.key, settings.iconSizeDp.dp,
+                Modifier
+                    .pressScale(pressed)
+                    .graphicsLayer {
+                        scaleX = selScale
+                        scaleY = selScale
+                    },
+            )
+            if (selecting) {
+                Box(
+                    Modifier
+                        .size(22.dp)
+                        .clip(CircleShape)
+                        .background(if (isSelected) accent else Color.Black.copy(alpha = 0.45f))
+                        .border(1.5.dp, Color.White, CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (isSelected) Text("\u2713", color = Color.White, fontSize = 12.sp)
+                }
+            }
+        }
         Spacer(Modifier.height(6.dp))
         IconLabel(label, color = Color.White)
     }
@@ -356,13 +542,14 @@ fun FolderOverlay(
     val accent = LocalAccent.current
     val hiddenForDrag = drag.moved && drag.source is DragSource.Folder
     val tint = folder.color?.let { Color(it) } ?: accent
-    val appear = remember { androidx.compose.animation.core.Animatable(0.88f) }
-    LaunchedEffect(Unit) { appear.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.7f)) }
+    val motion = LocalMotion.current
+    val appear = remember { androidx.compose.animation.core.Animatable(if (motion.enabled) 0f else 1f) }
+    LaunchedEffect(Unit) { appear.animateTo(1f, motion.spring(stiffness = 650f)) }
 
     Box(
         Modifier
             .fillMaxSize()
-            .graphicsLayer { alpha = if (hiddenForDrag) 0f else 1f }
+            .graphicsLayer { alpha = if (hiddenForDrag) 0f else appear.value.coerceIn(0f, 1f) }
             .background(Color.Black.copy(alpha = 0.45f))
             .pointerInput(Unit) { detectTapGestures { vm.openFolderId = null } },
         contentAlignment = Alignment.Center,
@@ -372,8 +559,9 @@ fun FolderOverlay(
                 .padding(24.dp)
                 .widthIn(max = 420.dp)
                 .graphicsLayer {
-                    scaleX = appear.value
-                    scaleY = appear.value
+                    val k = 0.86f + 0.14f * appear.value
+                    scaleX = k
+                    scaleY = k
                 }
                 .pointerInput(Unit) { detectTapGestures { } },
             shape = RoundedCornerShape(30.dp),
@@ -386,15 +574,27 @@ fun FolderOverlay(
             ),
         ) {
             Column(Modifier.padding(20.dp)) {
-                Text(
-                    folder.name,
-                    color = Color.White,
-                    fontSize = 20.sp,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .pointerInput(folder.id) { detectTapGestures { vm.renameFolderId = folder.id } }
-                        .padding(bottom = 14.dp, start = 4.dp),
-                )
+                Row(Modifier.padding(bottom = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        folder.name,
+                        color = Color.White,
+                        fontSize = 20.sp,
+                        modifier = Modifier
+                            .weight(1f)
+                            .pointerInput(folder.id) { detectTapGestures { vm.renameFolderId = folder.id } }
+                            .padding(start = 4.dp),
+                    )
+                    Text(
+                        "+ Add apps",
+                        color = tint,
+                        fontSize = 13.sp,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(50))
+                            .background(tint.copy(alpha = 0.18f))
+                            .clickable { vm.folderPickerFor = folder.id }
+                            .padding(horizontal = 12.dp, vertical = 7.dp),
+                    )
+                }
                 val perRow = 4
                 folder.apps.chunked(perRow).forEach { row ->
                     Row(Modifier.fillMaxWidth()) {

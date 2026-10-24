@@ -161,6 +161,39 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                     }
                 }
 
+                item { Section("Motion") }
+                item { SwitchRow("Animations", s.animations, "Turn off for instant, no-motion transitions") { v -> set { it.copy(animations = v) } } }
+                if (s.animations) {
+                    item {
+                        val presets = listOf(
+                            Triple("Snappy", 0.6f, 0.12f),
+                            Triple("Smooth", 0.8f, 0.3f),
+                            Triple("Relaxed", 1.25f, 0.25f),
+                            Triple("Bouncy", 0.9f, 0.7f),
+                        )
+                        val current = presets.firstOrNull { kotlin.math.abs(it.second - s.animScale) < 0.01f && kotlin.math.abs(it.third - s.animBounce) < 0.01f }
+                        Choice("Feel", presets.map { it.first } + "Custom", current?.first ?: "Custom", { it }) { name ->
+                            presets.firstOrNull { it.first == name }?.let { p -> set { it.copy(animScale = p.second, animBounce = p.third) } }
+                        }
+                    }
+                    item {
+                        FloatSlider("Speed", s.animScale, 0.3f..2f, { v ->
+                            when {
+                                v < 0.55f -> "Very fast"
+                                v < 0.75f -> "Fast"
+                                v < 1.05f -> "Normal"
+                                v < 1.5f -> "Slow"
+                                else -> "Very slow"
+                            } + " (${(v * 100).roundToInt()}%)"
+                        }) { v -> set { it.copy(animScale = (v * 20).roundToInt() / 20f) } }
+                    }
+                    item {
+                        FloatSlider("Bounce", s.animBounce, 0f..1f, { "${(it * 100).roundToInt()}%" }) { v ->
+                            set { it.copy(animBounce = (v * 20).roundToInt() / 20f) }
+                        }
+                    }
+                }
+
                 item { Section("Icons") }
                 item {
                     Choice("Icon shape", IconShape.entries, s.iconShape, { it.label }) { v -> set { it.copy(iconShape = v) } }
@@ -219,6 +252,10 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                     item { SwitchRow("Accent glow", s.dockGlow) { v -> set { it.copy(dockGlow = v) } } }
                     item { SwitchRow("Bounce on launch", s.dockBounce) { v -> set { it.copy(dockBounce = v) } } }
                     item { SwitchRow("Dock labels", s.dockShowLabels) { v -> set { it.copy(dockShowLabels = v) } } }
+                    item { IntSlider("Widgets under the dock", s.belowDockRows, 0..3, suffix = " rows") { v -> set { it.copy(belowDockRows = v) } } }
+                    if (s.belowDockRows > 0) {
+                        item { Hint("Drag any widget down there, or long-press a widget \u2192 Move under dock.") }
+                    }
                 }
 
                 item { Section("App drawer") }
@@ -229,6 +266,8 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                     }
                 }
                 item { SwitchRow("Suggested apps", s.drawerShowSuggestions) { v -> set { it.copy(drawerShowSuggestions = v) } } }
+                item { SwitchRow("A\u2013Z scroll bar", s.drawerFastScroll, "Slide along the letters to jump through your apps") { v -> set { it.copy(drawerFastScroll = v) } } }
+                item { Hint("Long-press an app \u2192 Select apps to pick several and put them in a folder at once.") }
                 item { SwitchRow("Open keyboard automatically", s.drawerAutoFocusSearch) { v -> set { it.copy(drawerAutoFocusSearch = v) } } }
                 item {
                     ClickRow("Hidden apps", "${state.hidden.size} hidden") { vm.hiddenAppsOpen = true }
