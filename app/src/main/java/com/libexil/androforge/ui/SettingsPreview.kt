@@ -145,12 +145,13 @@ private fun HomePreview(state: LauncherState, apps: List<AppInfo>) {
     val sample = sampleApps(state, apps, cols * 2)
     BoxWithConstraints(Modifier.fillMaxSize().padding(top = 30.dp, bottom = 6.dp, start = 6.dp, end = 6.dp)) {
         val cellW = maxWidth / cols
+        val rowH = maxHeight / 2
         Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.SpaceEvenly) {
             listOf(0, 1).forEach { row ->
                 Row(Modifier.fillMaxWidth()) {
                     for (c in 0 until cols) {
                         val i = row * cols + c
-                        Box(Modifier.width(cellW).height(maxHeight / 2), contentAlignment = Alignment.Center) {
+                        Box(Modifier.width(cellW).height(rowH), contentAlignment = Alignment.Center) {
                             if (row == 1 && c == cols - 1 && sample.size >= 4) {
                                 val folder = com.libexil.androforge.data.FolderItem("preview", name = "Folder", apps = sample.take(4).map { it.key })
                                 IconWithLabel("Folder", s.showLabels, s.iconSizeDp.dp) { FolderIcon(folder, s.iconSizeDp.dp) }
