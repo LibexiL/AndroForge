@@ -12,6 +12,7 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -90,11 +91,15 @@ class Pal(val source: ForgePalette) {
 fun rememberPalette(settings: LauncherSettings): Pal {
     val context = LocalContext.current
     var wallTick by remember { mutableStateOf(0) }
+    val changedTick by Palettes.wallpaperTick.collectAsState()
     if (settings.paletteSource == PaletteSource.WALLPAPER) {
         DisposableEffect(Unit) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
                 val wm = WallpaperManager.getInstance(context)
-                val listener = WallpaperManager.OnColorsChangedListener { _, _ -> wallTick++ }
+                val listener = WallpaperManager.OnColorsChangedListener { _, _ ->
+                    Palettes.clearWallpaperCache()
+                    wallTick++
+                }
                 wm.addOnColorsChangedListener(listener, Handler(Looper.getMainLooper()))
                 onDispose { wm.removeOnColorsChangedListener(listener) }
             } else {
@@ -102,8 +107,21 @@ fun rememberPalette(settings: LauncherSettings): Pal {
             }
         }
     }
-    return remember(settings.paletteSource, settings.palettePreset, settings.customPaletteName, settings.customPalettes, wallTick) {
-        Pal(Palettes.resolve(context, settings))
+    // Night theme: re-check once a minute.
+    val night by androidx.compose.runtime.produceState(
+        com.libexil.androforge.data.NightTheme.isNight(context, settings),
+        settings.nightTheme, settings.nightSchedule, settings.nightStartMin, settings.nightEndMin,
+    ) {
+        while (true) {
+            value = com.libexil.androforge.data.NightTheme.isNight(context, settings)
+            kotlinx.coroutines.delay(60_000L - System.currentTimeMillis() % 60_000L + 50)
+        }
+    }
+    return remember(
+        settings.paletteSource, settings.palettePreset, settings.customPaletteName, settings.customPalettes,
+        wallTick, changedTick, night, settings.nightPalette,
+    ) {
+        Pal(com.libexil.androforge.data.NightTheme.apply(context, settings, Palettes.resolve(context, settings), night))
     }
 }
 

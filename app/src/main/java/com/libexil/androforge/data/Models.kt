@@ -86,11 +86,36 @@ enum class DockStyle(val label: String) {
 }
 
 @Serializable
-enum class GestureAction(val label: String) {
-    NONE("Nothing"), APP_DRAWER("App drawer"), SEARCH("Search apps"),
+enum class GestureAction(val label: String, val needsLauncher: Boolean = false) {
+    NONE("Nothing"), APP_DRAWER("App drawer", true), SEARCH("Search apps", true),
     NOTIFICATIONS("Notifications"), QUICK_SETTINGS("Quick settings"),
-    LOCK_SCREEN("Lock screen"), LAUNCHER_SETTINGS("Launcher settings")
+    LOCK_SCREEN("Lock screen"), LAUNCHER_SETTINGS("Launcher settings", true),
+    FLASHLIGHT("Flashlight"), SCREENSHOT("Screenshot"), RECENTS("Recent apps"),
+    PLAY_PAUSE("Play / pause music"), POWER_MENU("Power menu"), OPEN_APP("Open an app"),
 }
+
+/** Every place a gesture can be assigned (key for [LauncherSettings.gestureApps]). */
+@Serializable
+enum class GestureSlot(val label: String) {
+    SWIPE_UP("Swipe up"), SWIPE_DOWN("Swipe down"), DOUBLE_TAP("Double tap"),
+    TWO_UP("Two-finger swipe up"), TWO_DOWN("Two-finger swipe down"), PINCH("Pinch in"), SHAKE("Shake the phone"),
+}
+
+/** How app icons take on the palette. */
+@Serializable
+enum class IconTint(val label: String) { OFF("Original"), TINTED("Tinted"), MONO("Monochrome") }
+
+@Serializable
+enum class DotStyle(val label: String) { OFF("Off"), DOT("Dot"), COUNT("Count") }
+
+/** Animated backgrounds drawn behind the home screen. */
+@Serializable
+enum class LiveBackground(val label: String) {
+    OFF("Off"), AURORA("Aurora"), FLOW("Gradient flow"), PULSE("Music pulse"), BUBBLES("Bubbles"), STARS("Starfield")
+}
+
+@Serializable
+enum class NightSchedule(val label: String) { SUN("Sunset to sunrise"), FIXED("Set times") }
 
 @Serializable
 enum class ThemeMode(val label: String) {
@@ -258,6 +283,40 @@ data class LauncherSettings(
     val swipeUp: GestureAction = GestureAction.APP_DRAWER,
     val swipeDown: GestureAction = GestureAction.NOTIFICATIONS,
     val doubleTap: GestureAction = GestureAction.LOCK_SCREEN,
+    val twoFingerUp: GestureAction = GestureAction.NONE,
+    val twoFingerDown: GestureAction = GestureAction.QUICK_SETTINGS,
+    val pinchIn: GestureAction = GestureAction.LAUNCHER_SETTINGS,
+    val shake: GestureAction = GestureAction.NONE,
+    val shakeSensitivity: Float = 0.5f,
+    /** App opened by each slot set to [GestureAction.OPEN_APP]. */
+    val gestureApps: Map<String, AppKey> = emptyMap(),
+    // Theming extras
+    val followWallpaper: Boolean = true,
+    val iconTint: IconTint = IconTint.OFF,
+    val iconTintStrength: Float = 0.85f,
+    val notificationDots: DotStyle = DotStyle.DOT,
+    val liveBackground: LiveBackground = LiveBackground.OFF,
+    val liveBackgroundOpacity: Float = 0.55f,
+    val liveBackgroundSpeed: Float = 1f,
+    val nightTheme: Boolean = false,
+    val nightSchedule: NightSchedule = NightSchedule.SUN,
+    val nightStartMin: Int = 21 * 60,
+    val nightEndMin: Int = 7 * 60,
+    /** Preset or saved theme name; null = a dimmed version of the day theme. */
+    val nightPalette: String? = null,
+    // Private (hidden) apps
+    val privateFolder: Boolean = true,
+    val privateLock: Boolean = true,
+    // Search
+    val searchCalculator: Boolean = true,
+    val searchContacts: Boolean = true,
+    val searchSettings: Boolean = true,
+    // Island extras
+    val islandAppColors: Map<String, Long> = emptyMap(),
+    val islandUseAppColor: Boolean = true,
+    val islandChargeAnimation: Boolean = true,
+    // Backup
+    val autoGistBackup: Boolean = false,
     // Updates
     val autoCheckUpdates: Boolean = true,
 )
@@ -272,6 +331,10 @@ data class LauncherState(
     val icons: Map<String, IconRef> = emptyMap(),
     val recents: List<AppKey> = emptyList(),
     val launchCounts: Map<String, Int> = emptyMap(),
+    /** Per app: how often it was opened in each hour of the day (24 entries). */
+    val launchHours: Map<String, List<Int>> = emptyMap(),
+    val lastSeenVersion: Int = 0,
+    val lastGistBackup: Long = 0L,
     val settings: LauncherSettings = LauncherSettings(),
     val initialized: Boolean = false,
     val lastUpdateCheck: Long = 0L,

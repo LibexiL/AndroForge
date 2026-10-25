@@ -109,6 +109,19 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
             android.content.pm.PackageManager.PERMISSION_GRANTED
     }
     var excludeOpen by remember { androidx.compose.runtime.mutableStateOf(false) }
+    var appColorsOpen by remember { androidx.compose.runtime.mutableStateOf(false) }
+    var gestureAppFor by remember { androidx.compose.runtime.mutableStateOf<com.libexil.androforge.data.GestureSlot?>(null) }
+    if (appColorsOpen) {
+        AppColorsDialog(apps, s.islandAppColors, pal, onSet = { pkg, c ->
+            set { it.copy(islandAppColors = if (c == null) it.islandAppColors - pkg else it.islandAppColors + (pkg to c)) }
+        }) { appColorsOpen = false }
+    }
+    gestureAppFor?.let { slot ->
+        AppPickerDialog("App for \u201c${slot.label}\u201d", apps, state.labels, onPick = { key ->
+            set { com.libexil.androforge.live.GestureRunner.withAction(it, slot, GestureAction.OPEN_APP).copy(gestureApps = it.gestureApps + (slot.name to key)) }
+            gestureAppFor = null
+        }) { gestureAppFor = null }
+    }
     var showPreview by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(true) }
     var currentSection by remember { androidx.compose.runtime.mutableStateOf("Home screen") }
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
@@ -249,6 +262,25 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                 item {
                     Choice("Folder style", FolderStyle.entries, s.folderStyle, { it.label }) { v -> set { it.copy(folderStyle = v) } }
                 }
+                item {
+                    Choice("Color icons from palette", com.libexil.androforge.data.IconTint.entries, s.iconTint, { it.label }) { v -> set { it.copy(iconTint = v) } }
+                }
+                if (s.iconTint != com.libexil.androforge.data.IconTint.OFF) {
+                    item {
+                        FloatSlider(if (s.iconTint == com.libexil.androforge.data.IconTint.MONO) "Glyph color strength" else "Tint strength", s.iconTintStrength, 0.2f..1f, { "${(it * 100).roundToInt()}%" }) { v ->
+                            set { it.copy(iconTintStrength = v) }
+                        }
+                    }
+                    item { Hint("Monochrome uses each app's themed icon on Android 13+, and makes one for apps that don't have it.") }
+                }
+                item {
+                    Choice("Notification dots", com.libexil.androforge.data.DotStyle.entries, s.notificationDots, { it.label }) { v -> set { it.copy(notificationDots = v) } }
+                }
+                if (s.notificationDots != com.libexil.androforge.data.DotStyle.OFF && !mediaAccess) {
+                    item {
+                        Banner("Dots need notification access", "AndroForge reads which apps have notifications to put dots on their icons.", "Allow") { host.openNotificationAccess() }
+                    }
+                }
 
                 item(key = "section:Dock") { Section("Dock") }
                 item { SwitchRow("Show dock", s.dockEnabled) { v -> set { it.copy(dockEnabled = v) } } }
@@ -304,8 +336,13 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                 item { Hint("Long-press an app \u2192 Select apps to pick several and put them in a folder at once.") }
                 item { SwitchRow("Open keyboard automatically", s.drawerAutoFocusSearch) { v -> set { it.copy(drawerAutoFocusSearch = v) } } }
                 item {
-                    ClickRow("Hidden apps", "${state.hidden.size} hidden") { vm.hiddenAppsOpen = true }
+                    ClickRow("Hidden apps", "${state.hidden.size} hidden") { vm.unlockPrivate { vm.hiddenAppsOpen = true } }
                 }
+                item { SwitchRow("Private folder", s.privateFolder, "Hidden apps show in a \u201cPrivate\u201d folder at the bottom of the drawer") { v -> set { it.copy(privateFolder = v) } } }
+                item { SwitchRow("Lock with fingerprint", s.privateLock, "Asks for your fingerprint, face or PIN before showing hidden apps") { v -> vm.unlockPrivate { set { it.copy(privateLock = v) } } } }
+                item { SwitchRow("Calculator & conversions", s.searchCalculator, "Type 15% of 80 or 5 km to mi") { v -> set { it.copy(searchCalculator = v) } } }
+                item { SwitchRow("Contacts in search", s.searchContacts) { v -> set { it.copy(searchContacts = v) } } }
+                item { SwitchRow("Settings shortcuts in search", s.searchSettings, "Type wifi, bluetooth, battery\u2026") { v -> set { it.copy(searchSettings = v) } } }
 
                 item(key = "section:Palette") { Section("Palette") }
                 item {
@@ -330,6 +367,11 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                     ClickRow("From an image\u2026", "Pick your wallpaper (or any photo) and make a theme from its colors") { host.pickPaletteImage() }
                 }
                 item { Hint("Matches the palette, accent, dock, island and status bar to your wallpaper, and keeps following it when you change wallpaper. \u201cSave\u201d keeps a copy as a theme.") }
+                item {
+                    SwitchRow("Follow my wallpaper", s.followWallpaper, "When you set a new wallpaper, the whole theme re-colors to match it") { v ->
+                        set { it.copy(followWallpaper = v) }
+                    }
+                }
                 item { Choice("Source", PaletteSource.entries, s.paletteSource, { it.label }) { v -> set { it.copy(paletteSource = v) } } }
                 if (s.paletteSource == PaletteSource.PRESET) {
                     Palettes.presets.forEach { p ->
@@ -365,6 +407,43 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                     }
                 }
                 item { Hint("Theme files are the same format ThemeForge uses, so you can move a theme between your PC and phone.") }
+
+                item(key = "section:Night theme") { Section("Night theme") }
+                item { SwitchRow("Night theme", s.nightTheme, "A softer, darker palette at night") { v -> set { it.copy(nightTheme = v) } } }
+                if (s.nightTheme) {
+                    item { Choice("When", com.libexil.androforge.data.NightSchedule.entries, s.nightSchedule, { it.label }) { v -> set { it.copy(nightSchedule = v) } } }
+                    if (s.nightSchedule == com.libexil.androforge.data.NightSchedule.SUN) {
+                        item { Hint("Uses your rough location if weather already has it, otherwise about 7:30 PM to 6:30 AM.") }
+                    } else {
+                        item {
+                            IntSlider("Starts", s.nightStartMin / 30, 0..47, formatter = { v -> clockLabel(v * 30) }) { v -> set { it.copy(nightStartMin = v * 30) } }
+                        }
+                        item {
+                            IntSlider("Ends", s.nightEndMin / 30, 0..47, formatter = { v -> clockLabel(v * 30) }) { v -> set { it.copy(nightEndMin = v * 30) } }
+                        }
+                    }
+                    item {
+                        val names = listOf<String?>(null) + Palettes.presets.map { it.name } + s.customPalettes.map { it.name }
+                        Choice("Night palette", names.distinct(), s.nightPalette, { it ?: "Dimmed day theme" }) { v -> set { it.copy(nightPalette = v) } }
+                    }
+                }
+
+                item(key = "section:Live background") { Section("Live background") }
+                item {
+                    Choice("Animated background", com.libexil.androforge.data.LiveBackground.entries, s.liveBackground, { it.label }) { v -> set { it.copy(liveBackground = v) } }
+                }
+                if (s.liveBackground != com.libexil.androforge.data.LiveBackground.OFF) {
+                    item { FloatSlider("Strength", s.liveBackgroundOpacity, 0.1f..1f, { "${(it * 100).roundToInt()}%" }) { v -> set { it.copy(liveBackgroundOpacity = v) } } }
+                    item { FloatSlider("Speed", s.liveBackgroundSpeed, 0.2f..3f, { "${(it * 100).roundToInt()}%" }) { v -> set { it.copy(liveBackgroundSpeed = v) } } }
+                    item { Hint("Drawn in your palette over your wallpaper on the home screen. Music pulse reacts to what's playing.") }
+                    if (s.liveBackground == com.libexil.androforge.data.LiveBackground.PULSE && !audioOk) {
+                        item {
+                            Banner("Let the background hear your music", "Audio access lets it pulse with the beat. Nothing is recorded.", "Allow") {
+                                host.requestPermission(android.Manifest.permission.RECORD_AUDIO)
+                            }
+                        }
+                    }
+                }
 
                 item(key = "section:Look & feel") { Section("Look & feel") }
                 item { Choice("Accent color", ThemeMode.entries, s.themeMode, { it.label }) { v -> set { it.copy(themeMode = v) } } }
@@ -422,6 +501,9 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                     item { SwitchRow("Music", s.islandMusic, "Album art + visualizer; tap to expand the player") { v -> set { it.copy(islandMusic = v) } } }
                     item { SwitchRow("Visualizer in island", s.islandVisualizer) { v -> set { it.copy(islandVisualizer = v) } } }
                     item { SwitchRow("Charging & low battery", s.islandCharging) { v -> set { it.copy(islandCharging = v) } } }
+                    if (s.islandCharging) {
+                        item { SwitchRow("Charging animation", s.islandChargeAnimation, "A filling battery when you plug in") { v -> set { it.copy(islandChargeAnimation = v) } } }
+                    }
                     item { SwitchRow("Calls & alarms", s.islandCalls, "Answer or decline from the island; call timer while you talk") { v -> set { it.copy(islandCalls = v) } } }
                     item { SwitchRow("Live activities", s.islandLiveActivities, "Timers, stopwatch, recording, downloads, navigation") { v -> set { it.copy(islandLiveActivities = v) } } }
                     item { SwitchRow("Device alerts", s.islandDeviceAlerts, "Headphones connected, silent / vibrate / ring") { v -> set { it.copy(islandDeviceAlerts = v) } } }
@@ -445,6 +527,10 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                         item { Hint("Getting two pop-ups? Turn off \u201cPop on screen\u201d (or floating notifications) for those apps in Android's notification settings.") }
                     }
                     item { SwitchRow("Palette glow", s.islandGlow) { v -> set { it.copy(islandGlow = v) } } }
+                    item { SwitchRow("Use each app's color", s.islandUseAppColor, "Pop-ups and live activities glow in their app's color") { v -> set { it.copy(islandUseAppColor = v) } } }
+                    item {
+                        ClickRow("Island colors per app", if (s.islandAppColors.isEmpty()) "Pick a color for any app" else "${s.islandAppColors.size} apps colored") { appColorsOpen = true }
+                    }
                     item { SwitchRow("Hide in landscape", s.islandHideLandscape, "Keeps games and videos clear") { v -> set { it.copy(islandHideLandscape = v) } } }
                 }
                 if (s.barMode != BarMode.OFF) {
@@ -617,15 +703,34 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                 }
 
                 item(key = "section:Gestures") { Section("Gestures") }
-                item { Choice("Swipe up", GestureAction.entries, s.swipeUp, { it.label }) { v -> set { it.copy(swipeUp = v) } } }
-                item { Choice("Swipe down", GestureAction.entries, s.swipeDown, { it.label }) { v -> set { it.copy(swipeDown = v) } } }
-                item { Choice("Double tap", GestureAction.entries, s.doubleTap, { it.label }) { v -> set { it.copy(doubleTap = v) } } }
-                val usesLock = listOf(s.swipeUp, s.swipeDown, s.doubleTap).contains(GestureAction.LOCK_SCREEN)
-                if (usesLock && !LockService.isRunning) {
+                com.libexil.androforge.data.GestureSlot.entries.forEach { slot ->
+                    val current = com.libexil.androforge.live.GestureRunner.actionFor(s, slot)
+                    val options = if (slot == com.libexil.androforge.data.GestureSlot.SHAKE) GestureAction.entries.filter { !it.needsLauncher } else GestureAction.entries
+                    item(key = "gesture:" + slot.name) {
+                        Choice(slot.label, options, current, { it.label }) { v ->
+                            if (v == GestureAction.OPEN_APP) gestureAppFor = slot
+                            else set { com.libexil.androforge.live.GestureRunner.withAction(it, slot, v) }
+                        }
+                    }
+                    if (current == GestureAction.OPEN_APP) {
+                        item(key = "gesture-app:" + slot.name) {
+                            val key = s.gestureApps[slot.name]
+                            val label = key?.let { k -> state.labels[k.id] ?: apps.firstOrNull { it.key == k }?.label } ?: "Pick an app"
+                            ClickRow("  App to open", label) { gestureAppFor = slot }
+                        }
+                    }
+                }
+                if (s.shake != GestureAction.NONE) {
+                    item { FloatSlider("Shake sensitivity", s.shakeSensitivity, 0f..1f, { if (it < 0.33f) "Firm shake" else if (it < 0.66f) "Normal" else "Light shake" }) { v -> set { it.copy(shakeSensitivity = v) } } }
+                }
+                val slotsActions = com.libexil.androforge.data.GestureSlot.entries.map { com.libexil.androforge.live.GestureRunner.actionFor(s, it) }
+                val needsService = slotsActions.any { it in listOf(GestureAction.LOCK_SCREEN, GestureAction.SCREENSHOT, GestureAction.RECENTS, GestureAction.POWER_MENU) } ||
+                    s.shake != GestureAction.NONE
+                if (needsService && !LockService.isRunning) {
                     item {
                         Banner(
-                            "Screen lock needs one permission",
-                            "Turn on “AndroForge screen lock” in Accessibility. It only locks the screen.",
+                            "Some gestures need system features",
+                            "Lock, screenshot, recents, power menu, and shaking from any app need \u201cAndroForge system features\u201d in Accessibility.",
                             "Open settings",
                         ) { SystemActions.openAccessibilitySettings(context) }
                     }
@@ -669,8 +774,19 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                 item(key = "section:Backup") { Section("Backup") }
                 item { ClickRow("Export layout", "Save your home screen, dock and settings to a file") { host.exportLayout() } }
                 item { ClickRow("Import layout", "Restore from a file (widgets need re-adding)") { host.importLayout() } }
+                item {
+                    ClickRow(
+                        "GitHub backup",
+                        if (state.lastGistBackup > 0) "Last backed up " + DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(state.lastGistBackup)) else "Back up to a private Gist and restore on any phone",
+                    ) { vm.gistDialogOpen = true }
+                }
 
                 item(key = "section:About") { Section("About") }
+                item {
+                    ClickRow("What's new", "See what changed in this version") {
+                        vm.whatsNew = runCatching { context.resources.openRawResource(com.libexil.androforge.R.raw.whats_new).bufferedReader().readText() }.getOrNull()
+                    }
+                }
                 item {
                     Hint(
                         "AndroForge • ${apps.size} apps • ${state.items.size} home items\n" +
@@ -867,13 +983,21 @@ private fun ClickRow(title: String, subtitle: String, onClick: () -> Unit) {
     }
 }
 
+private fun clockLabel(min: Int): String {
+    val h = (min / 60) % 24
+    val m = min % 60
+    val ampm = if (h < 12) "AM" else "PM"
+    val h12 = if (h % 12 == 0) 12 else h % 12
+    return "%d:%02d %s".format(h12, m, ampm)
+}
+
 @Composable
-private fun IntSlider(title: String, value: Int, range: IntRange, suffix: String = "", onChange: (Int) -> Unit) {
+private fun IntSlider(title: String, value: Int, range: IntRange, suffix: String = "", formatter: ((Int) -> String)? = null, onChange: (Int) -> Unit) {
     var local by remember(value) { mutableFloatStateOf(value.toFloat()) }
     Column(Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
         Row {
             Text(title, fontSize = 15.sp, modifier = Modifier.weight(1f))
-            Text("${local.roundToInt()}$suffix", fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
+            Text(formatter?.invoke(local.roundToInt()) ?: "${local.roundToInt()}$suffix", fontSize = 14.sp, color = MaterialTheme.colorScheme.primary)
         }
         Slider(
             value = local,

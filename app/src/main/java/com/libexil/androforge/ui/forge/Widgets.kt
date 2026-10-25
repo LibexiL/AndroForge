@@ -112,6 +112,7 @@ fun ForgeWidget(item: ForgeWidgetItem, pal: Pal, actions: ForgeActions) {
         ForgeKind.GREETING -> ForgePanel(item.look, item.kind, pal) { GreetingWidget(item, pal) }
         ForgeKind.SEARCH -> ForgePanel(item.look, item.kind, pal, padding = 4.dp) { SearchWidget(item, pal, actions) }
         ForgeKind.BATTERY -> ForgePanel(item.look, item.kind, pal) { BatteryWidget(item, pal) }
+        ForgeKind.STACK -> StackWidget(item, pal, actions)
     }
 }
 
@@ -710,7 +711,7 @@ fun ForgeKindGlyph(kind: ForgeKind, pal: Pal) {
             Text("21°", color = pal.foreground, fontSize = 18.sp)
         }
         ForgeKind.CALENDAR, ForgeKind.COUNTDOWN, ForgeKind.TODO, ForgeKind.SHELF,
-        ForgeKind.NETWORK, ForgeKind.GREETING, ForgeKind.SEARCH, ForgeKind.BATTERY -> NewKindGlyph(kind, pal)
+        ForgeKind.NETWORK, ForgeKind.GREETING, ForgeKind.SEARCH, ForgeKind.BATTERY, ForgeKind.STACK -> NewKindGlyph(kind, pal)
         ForgeKind.MUSIC, ForgeKind.VISUALIZER, ForgeKind.SYSTEM -> Canvas(Modifier.fillMaxSize().padding(8.dp)) {
             val w = size.width
             val h = size.height

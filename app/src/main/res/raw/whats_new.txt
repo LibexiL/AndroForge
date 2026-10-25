@@ -1,0 +1,28 @@
+Themes
+• Follow wallpaper: set a new wallpaper and the whole theme re-colors itself.
+• Tinted and monochrome icons that match your palette (Settings → Icons).
+• Night theme: switches to a softer palette from sunset to sunrise, or at times you pick.
+• Live backgrounds behind your home screen: Aurora, Gradient flow, Music pulse, Bubbles, Starfield.
+
+Home screen
+• Widget stack: several widgets in one spot, swipe up or down to flip. It jumps to music when a song starts.
+• New gestures: two-finger swipe up/down, pinch, and shake (works in any app with system features on).
+• Gestures can now toggle the flashlight, take a screenshot, play/pause, open recents, the power menu or any app.
+• Use a photo as an app's icon (Edit → Use a photo).
+• Private apps: hidden apps sit in a fingerprint-locked "Private" folder at the bottom of the drawer.
+• Notification dots on icons, in your accent color.
+
+Search
+• Type math (15% of 80, 2^10) or conversions (5 km to mi, 72 f to c) for instant answers.
+• Contacts and settings shortcuts show up as you type.
+• Suggested apps now follow the time of day.
+
+Island
+• Timers, stopwatches, navigation, recordings and food/ride tracking each get their own look. Tap to open a card with their buttons.
+• Charging animation when you plug in.
+• Per-app island colors.
+
+Reliability
+• Back up to a private GitHub Gist and restore anywhere.
+• This "What's new" screen after each update.
+• If AndroForge ever crashes, you'll be offered a one-tap GitHub issue report.

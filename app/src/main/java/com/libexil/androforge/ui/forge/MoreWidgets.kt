@@ -567,6 +567,17 @@ fun NewKindGlyph(kind: ForgeKind, pal: Pal) {
             Spacer(Modifier.width(4.dp))
             Box(Modifier.size(width = 34.dp, height = 4.dp).clip(RoundedCornerShape(2.dp)).background(pal.muted))
         }
+        ForgeKind.STACK -> Box(Modifier.size(width = 52.dp, height = 40.dp)) {
+            for (i in 2 downTo 0) {
+                Box(
+                    Modifier
+                        .padding(start = (i * 5).dp, top = ((2 - i) * 5).dp)
+                        .size(width = 40.dp, height = 28.dp)
+                        .clip(RoundedCornerShape(7.dp))
+                        .background(pal.gradientAt(i / 2f).copy(alpha = 0.35f + 0.3f * (2 - i))),
+                )
+            }
+        }
         ForgeKind.BATTERY -> Canvas(Modifier.size(38.dp)) {
             drawArc(pal.muted.copy(alpha = 0.3f), -90f, 360f, false, style = Stroke(5f))
             drawArc(pal.ansi.getOrElse(2) { pal.accent }, -90f, 260f, false, style = Stroke(5f, cap = StrokeCap.Round))

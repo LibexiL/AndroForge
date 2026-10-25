@@ -95,6 +95,105 @@ class MainActivity : ComponentActivity(), LauncherHost {
         Toast.makeText(this, "Theme made from your image", Toast.LENGTH_SHORT).show()
     }
 
+    private var iconPhotoFor: com.libexil.androforge.data.AppKey? = null
+
+    private val pickIcon = registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        val key = iconPhotoFor ?: return@registerForActivityResult
+        iconPhotoFor = null
+        if (uri == null) return@registerForActivityResult
+        val bmp = try {
+            contentResolver.openInputStream(uri)?.use { input ->
+                val opts = android.graphics.BitmapFactory.Options().apply { inSampleSize = 4 }
+                android.graphics.BitmapFactory.decodeStream(input, null, opts)
+            }
+        } catch (e: Exception) {
+            null
+        }
+        val ref = bmp?.let { vm.repo.savePhotoIcon(it) }
+        if (ref == null) {
+            Toast.makeText(this, "Couldn't use that image", Toast.LENGTH_SHORT).show()
+        } else {
+            vm.setIcon(key, ref)
+            Toast.makeText(this, "Icon updated", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    override fun pickIconPhoto(key: com.libexil.androforge.data.AppKey) {
+        iconPhotoFor = key
+        pickIcon.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+    }
+
+    override fun authenticate(title: String, onSuccess: () -> Unit) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
+            // Older Android: use the lock screen check.
+            val km = getSystemService(android.app.KeyguardManager::class.java)
+            if (km == null || !km.isDeviceSecure) {
+                onSuccess()
+                return
+            }
+            pendingUnlock = onSuccess
+            @Suppress("DEPRECATION")
+            val i = km.createConfirmDeviceCredentialIntent(title, null)
+            if (i == null) onSuccess() else confirmCredential.launch(i)
+            return
+        }
+        val km = getSystemService(android.app.KeyguardManager::class.java)
+        if (km != null && !km.isDeviceSecure) {
+            Toast.makeText(this, "Set a screen lock to protect private apps", Toast.LENGTH_SHORT).show()
+            onSuccess()
+            return
+        }
+        val builder = android.hardware.biometrics.BiometricPrompt.Builder(this).setTitle(title)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            builder.setAllowedAuthenticators(
+                android.hardware.biometrics.BiometricManager.Authenticators.BIOMETRIC_WEAK or
+                    android.hardware.biometrics.BiometricManager.Authenticators.DEVICE_CREDENTIAL,
+            )
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            @Suppress("DEPRECATION")
+            builder.setDeviceCredentialAllowed(true)
+        } else {
+            builder.setNegativeButton("Cancel", mainExecutor) { _, _ -> }
+        }
+        try {
+            builder.build().authenticate(
+                android.os.CancellationSignal(),
+                mainExecutor,
+                object : android.hardware.biometrics.BiometricPrompt.AuthenticationCallback() {
+                    override fun onAuthenticationSucceeded(result: android.hardware.biometrics.BiometricPrompt.AuthenticationResult?) {
+                        onSuccess()
+                    }
+                },
+            )
+        } catch (e: Exception) {
+            Toast.makeText(this, "Couldn't show the fingerprint prompt", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private var pendingUnlock: (() -> Unit)? = null
+    private val confirmCredential = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
+        val ok = pendingUnlock
+        pendingUnlock = null
+        if (r.resultCode == RESULT_OK) ok?.invoke()
+    }
+
+    /** Shake while AndroForge is open (the accessibility service handles it everywhere else). */
+    private val shake by lazy {
+        com.libexil.androforge.live.ShakeDetector(this, { vm.state.value.settings.shakeSensitivity }) {
+            vm.emit(UiEvent.Gesture(com.libexil.androforge.data.GestureSlot.SHAKE))
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        shake.stop()
+    }
+
+    override fun onDestroy() {
+        if (vm.host === this) vm.host = null
+        super.onDestroy()
+    }
+
     override fun pickPaletteImage() {
         pickImage.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
     }
@@ -141,6 +240,7 @@ class MainActivity : ComponentActivity(), LauncherHost {
         widgetManager = AppWidgetManager.getInstance(this)
         widgetHost = AppWidgetHost(applicationContext, WIDGET_HOST_ID)
 
+        vm.host = this
         setContent { LauncherScreen(vm, this) }
 
         handleIntent(intent, fresh = true)
@@ -159,6 +259,8 @@ class MainActivity : ComponentActivity(), LauncherHost {
         super.onResume()
         vm.maybeAutoCheck()
         vm.resumeWallpaperMatch()
+        (application as LauncherApp).onWallpaperMaybeChanged()
+        if (!LockService.isRunning && vm.state.value.settings.shake != com.libexil.androforge.data.GestureAction.NONE) shake.start()
         // Coming back from a settings screen may have changed access.
         PermissionBus.changed()
         com.libexil.androforge.live.SystemOverride.apply(this, vm.state.value.settings)
@@ -171,6 +273,7 @@ class MainActivity : ComponentActivity(), LauncherHost {
         } catch (_: Exception) {
         }
         vm.store.flush()
+        vm.maybeAutoBackup()
     }
 
     override fun onNewIntent(intent: Intent) {

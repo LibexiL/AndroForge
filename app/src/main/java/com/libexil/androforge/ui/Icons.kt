@@ -25,6 +25,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
@@ -38,32 +39,96 @@ import com.libexil.androforge.data.FolderItem
 import com.libexil.androforge.data.FolderStyle
 import com.libexil.androforge.data.IconImage
 
+/** Notification count per package, for icon dots. */
+val LocalNotifCounts = androidx.compose.runtime.staticCompositionLocalOf { emptyMap<String, Int>() }
+
 @Composable
-fun AppIcon(key: AppKey, size: Dp, modifier: Modifier = Modifier) {
+fun rememberTintSpec(): com.libexil.androforge.data.IconTintSpec? {
+    val settings = LocalSettings.current
+    val pal = LocalPalette.current
+    if (settings.iconTint == com.libexil.androforge.data.IconTint.OFF) return null
+    return androidx.compose.runtime.remember(settings.iconTint, settings.iconTintStrength, pal) {
+        val mono = settings.iconTint == com.libexil.androforge.data.IconTint.MONO
+        com.libexil.androforge.data.IconTintSpec(
+            mode = settings.iconTint,
+            dark = (if (mono) pal.surface else pal.background).toArgbInt(),
+            light = (if (mono) pal.accent else androidx.compose.ui.graphics.lerp(pal.accent, pal.foreground, 0.35f)).toArgbInt(),
+            strength = settings.iconTintStrength,
+        )
+    }
+}
+
+private fun Color.toArgbInt(): Int = this.toArgb()
+
+@Composable
+fun AppIcon(key: AppKey, size: Dp, modifier: Modifier = Modifier, dot: Boolean = false) {
     val repo = LauncherApp.instance.apps
     val settings = LocalSettings.current
     val custom = LocalIconOverrides.current[key.id]
     val px = with(LocalDensity.current) { size.roundToPx() }
     val version by repo.iconVersion.collectAsState()
-    val cacheKey = repo.iconCacheKey(key, px, settings.iconShape, settings.iconPack, custom)
+    val tint = rememberTintSpec()
+    val cacheKey = repo.iconCacheKey(key, px, settings.iconShape, settings.iconPack, custom, tint)
     val image: IconImage? by produceState(repo.cachedIcon(cacheKey), cacheKey, version) {
-        value = repo.loadIcon(key, px, settings.iconShape, settings.iconPack, custom)
+        value = repo.loadIcon(key, px, settings.iconShape, settings.iconPack, custom, tint)
     }
     val shape = settings.iconShape.toShape()
     val img = image
-    if (img == null) {
-        Box(modifier.size(size).clip(shape).background(Color.White.copy(alpha = 0.12f)))
-    } else {
-        Image(
-            bitmap = img.bitmap,
-            contentDescription = null,
-            modifier = modifier.size(size).then(if (img.clip) Modifier.clip(shape) else Modifier),
-        )
+    Box(modifier.size(size)) {
+        if (img == null) {
+            Box(Modifier.fillMaxSize().clip(shape).background(Color.White.copy(alpha = 0.12f)))
+        } else {
+            Image(
+                bitmap = img.bitmap,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize().then(if (img.clip) Modifier.clip(shape) else Modifier),
+            )
+        }
+        if (dot) NotificationDot(LocalNotifCounts.current[key.pkg] ?: 0, size)
     }
 }
 
 @Composable
-fun FolderIcon(folder: FolderItem, size: Dp, modifier: Modifier = Modifier) {
+private fun androidx.compose.foundation.layout.BoxScope.NotificationDot(count: Int, iconSize: Dp) {
+    val style = LocalSettings.current.notificationDots
+    if (count <= 0 || style == com.libexil.androforge.data.DotStyle.OFF) return
+    val accent = LocalAccent.current
+    val withCount = style == com.libexil.androforge.data.DotStyle.COUNT
+    val d = if (withCount) iconSize * 0.36f else iconSize * 0.22f
+    Box(
+        Modifier
+            .align(Alignment.TopEnd)
+            .offset(x = d * 0.18f, y = -d * 0.18f)
+            .size(d)
+            .clip(androidx.compose.foundation.shape.CircleShape)
+            .background(accent)
+            .border(1.5.dp, Color.Black.copy(alpha = 0.35f), androidx.compose.foundation.shape.CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (withCount) {
+            Text(
+                if (count > 99) "99" else "$count",
+                color = Color.White,
+                fontSize = (d.value * 0.55f).sp,
+                maxLines = 1,
+                style = TextStyle(platformStyle = androidx.compose.ui.text.PlatformTextStyle(includeFontPadding = false)),
+            )
+        }
+    }
+}
+
+@Composable
+fun FolderIcon(folder: FolderItem, size: Dp, modifier: Modifier = Modifier, dot: Boolean = false) {
+    val counts = LocalNotifCounts.current
+    val total = if (dot) folder.apps.distinctBy { it.pkg }.sumOf { counts[it.pkg] ?: 0 } else 0
+    Box(modifier.size(size)) {
+        FolderIconBody(folder, size)
+        if (total > 0) NotificationDot(total, size)
+    }
+}
+
+@Composable
+private fun FolderIconBody(folder: FolderItem, size: Dp, modifier: Modifier = Modifier) {
     val settings = LocalSettings.current
     val accent = LocalAccent.current
     val shape = settings.iconShape.toShape()

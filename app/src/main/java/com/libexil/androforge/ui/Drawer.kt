@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -48,6 +49,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -163,12 +165,28 @@ fun AppDrawer(
             .filter { labelOf(it).contains(q, ignoreCase = true) || it.key.pkg.contains(q, ignoreCase = true) }
             .sortedBy { if (labelOf(it).startsWith(q, ignoreCase = true)) 0 else 1 }
     }
-    val suggestions = remember(visible, state.launchCounts) {
+    // Suggestions lean on what you usually open at this time of day.
+    val hour = remember(drawer.isOpen) { java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY) }
+    val suggestions = remember(visible, state.launchCounts, state.launchHours, hour) {
         if (!settings.drawerShowSuggestions) emptyList()
-        else visible.filter { (state.launchCounts[it.key.id] ?: 0) > 0 }
-            .sortedByDescending { state.launchCounts[it.key.id] ?: 0 }
-            .take(settings.drawerColumns)
+        else {
+            fun score(a: AppInfo): Float {
+                val h = state.launchHours[a.key.id]
+                val near = if (h != null && h.size == 24) h[hour] * 2f + h[(hour + 23) % 24] + h[(hour + 1) % 24] else 0f
+                return near + (state.launchCounts[a.key.id] ?: 0) * 0.15f
+            }
+            visible.filter { (state.launchCounts[it.key.id] ?: 0) > 0 }
+                .sortedByDescending(::score)
+                .take(settings.drawerColumns)
+        }
     }
+    val suggestTitle = when (hour) {
+        in 5..11 -> "Suggested this morning"
+        in 12..16 -> "Suggested this afternoon"
+        in 17..21 -> "Suggested this evening"
+        else -> "Suggested tonight"
+    }
+    val privateApps = remember(apps, state.hidden) { apps.filter { it.key.id in state.hidden } }
 
     // Pull-down-to-close only when the list was already at the top when your finger went down,
     // so scrolling back up through your apps never closes the drawer by accident.
@@ -366,7 +384,7 @@ fun AppDrawer(
             }
             if (showSugg) {
                 item(key = "sugg-title", span = { GridItemSpan(maxLineSpan) }) {
-                    SectionTitle("Suggested")
+                    SectionTitle(suggestTitle)
                 }
                 items(suggestions, key = { "s:" + it.key.id }) { app ->
                     DrawerAppCell(app, labelOf(app), vm, drag, onDragEnd)
@@ -374,6 +392,9 @@ fun AppDrawer(
                 item(key = "sugg-div", span = { GridItemSpan(maxLineSpan) }) {
                     HorizontalDivider(Modifier.padding(vertical = 8.dp), color = Color.White.copy(alpha = 0.1f))
                 }
+            }
+            if (query.isNotBlank()) {
+                item(key = "smart", span = { GridItemSpan(maxLineSpan) }) { SmartResults(query, vm) }
             }
             items(filtered, key = { "a:" + it.key.id }) { app ->
                 Box(itemAnim(Modifier, this)) { DrawerAppCell(app, labelOf(app), vm, drag, onDragEnd) }
@@ -400,6 +421,13 @@ fun AppDrawer(
                                 }
                             },
                     )
+                }
+            }
+            if (settings.privateFolder && privateApps.isNotEmpty() && query.isBlank() && letter == null && !vm.selecting) {
+                item(key = "private", span = { GridItemSpan(maxLineSpan) }) {
+                    PrivateFolderRow(privateApps.size, settings.privateLock) {
+                        vm.unlockPrivate { vm.privateOpen = true }
+                    }
                 }
             }
             item(key = "bottom-space", span = { GridItemSpan(maxLineSpan) }) { Spacer(Modifier.height(if (vm.selecting) 96.dp else 24.dp)) }
@@ -633,6 +661,7 @@ private fun DrawerAppCell(app: AppInfo, label: String, vm: LauncherViewModel, dr
                         scaleX = selScale
                         scaleY = selScale
                     },
+                dot = !selecting,
             )
             if (selecting) {
                 Box(
@@ -795,5 +824,94 @@ private fun FolderAppCell(
         Spacer(Modifier.height(6.dp))
         IconLabel(label, color = Color.White, sizeSp = 11)
         Spacer(Modifier.width(1.dp))
+    }
+}
+
+@Composable
+private fun PrivateFolderRow(count: Int, locked: Boolean, onOpen: () -> Unit) {
+    val accent = LocalAccent.current
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 6.dp, vertical = 12.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .background(Color.White.copy(alpha = 0.07f))
+            .clickable(onClick = onOpen)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(36.dp).clip(RoundedCornerShape(12.dp)).background(accent.copy(alpha = 0.3f)), contentAlignment = Alignment.Center) {
+            Icon(androidx.compose.material.icons.Icons.Default.Lock, null, tint = Color.White, modifier = Modifier.size(18.dp))
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text("Private", color = Color.White, fontSize = 15.sp)
+            Text(
+                "$count hidden app" + (if (count == 1) "" else "s") + if (locked) " \u2022 fingerprint to open" else "",
+                color = Color.White.copy(alpha = 0.55f), fontSize = 12.sp,
+            )
+        }
+    }
+}
+
+/** The hidden apps, shown after unlocking. Closes with the drawer. */
+@Composable
+fun PrivateAppsSheet(vm: LauncherViewModel, state: LauncherState, apps: List<AppInfo>) {
+    val hidden = remember(apps, state.hidden) { apps.filter { it.key.id in state.hidden }.sortedBy { (state.labels[it.key.id] ?: it.label).lowercase() } }
+    androidx.compose.ui.window.Dialog(onDismissRequest = { vm.privateOpen = false }) {
+        Card(shape = RoundedCornerShape(28.dp), colors = CardDefaults.cardColors(containerColor = androidx.compose.material3.MaterialTheme.colorScheme.surfaceContainerHigh)) {
+            Column(Modifier.padding(vertical = 16.dp)) {
+                Row(Modifier.padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(androidx.compose.material.icons.Icons.Default.Lock, null, tint = LocalAccent.current, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Private apps", fontSize = 20.sp, modifier = Modifier.weight(1f))
+                }
+                Text(
+                    "Tap to open. Long-press to stop hiding an app.",
+                    fontSize = 12.sp, color = Color.White.copy(alpha = 0.55f),
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+                )
+                if (hidden.isEmpty()) {
+                    Text("No hidden apps.", modifier = Modifier.padding(20.dp))
+                } else {
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(4),
+                        modifier = Modifier
+                            .heightIn(max = 420.dp)
+                            .padding(horizontal = 8.dp),
+                    ) {
+                        items(hidden, key = { it.key.id }) { app ->
+                            Column(
+                                Modifier
+                                    .padding(4.dp)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .pointerInput(app.key) {
+                                        detectTapGestures(
+                                            onTap = {
+                                                vm.privateOpen = false
+                                                vm.launch(app.key)
+                                            },
+                                            onLongPress = {
+                                                vm.setHidden(app.key, false)
+                                                vm.toast("${state.labels[app.key.id] ?: app.label} is back in your drawer")
+                                            },
+                                        )
+                                    }
+                                    .padding(vertical = 8.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                            ) {
+                                AppIcon(app.key, 48.dp)
+                                Spacer(Modifier.height(4.dp))
+                                Text(state.labels[app.key.id] ?: app.label, fontSize = 11.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                            }
+                        }
+                    }
+                }
+                androidx.compose.material3.TextButton(
+                    onClick = { vm.privateOpen = false },
+                    modifier = Modifier.align(Alignment.End).padding(end = 12.dp),
+                ) { Text("Done") }
+            }
+        }
     }
 }

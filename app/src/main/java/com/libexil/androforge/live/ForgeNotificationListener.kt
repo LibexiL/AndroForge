@@ -169,6 +169,7 @@ class ForgeNotificationListener : NotificationListenerService() {
             countDown = x.getBoolean("android.chronometerCountDown", false),
             progress = progress,
             urgent = urgent,
+            subText = x.getCharSequence(Notification.EXTRA_SUB_TEXT)?.toString()?.trim()?.takeIf { it.isNotEmpty() },
         )
     }
 

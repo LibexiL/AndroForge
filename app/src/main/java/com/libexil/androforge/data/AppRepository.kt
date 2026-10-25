@@ -22,6 +22,7 @@ import android.util.LruCache
 import android.widget.Toast
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.asAndroidBitmap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -41,6 +42,14 @@ data class AppInfo(
 
 /** An icon ready to draw. [clip] = the launcher's icon shape should be applied. */
 class IconImage(val bitmap: ImageBitmap, val clip: Boolean)
+
+/** Recolors icons to the palette: [dark]/[light] are the two ends of the tint. */
+data class IconTintSpec(val mode: IconTint, val dark: Int, val light: Int, val strength: Float) {
+    val key: String get() = "$mode:${Integer.toHexString(dark)}:${Integer.toHexString(light)}:${(strength * 100).toInt()}"
+}
+
+/** Custom icons picked from photos live in files/icons and are referenced with this pack name. */
+const val PHOTO_ICON_PACK = "@photo"
 
 class AppRepository(private val context: Context, private val store: LayoutStore) {
     private val launcherApps = context.getSystemService(LauncherApps::class.java)
@@ -203,24 +212,128 @@ class AppRepository(private val context: Context, private val store: LayoutStore
 
     // ---------------------------------------------------------------- icons
 
-    fun iconCacheKey(key: AppKey, sizePx: Int, shape: IconShape, pack: String?, custom: IconRef?): String =
-        "${key.id}|$sizePx|$shape|$pack|${custom?.pack}:${custom?.drawable}"
+    fun iconCacheKey(key: AppKey, sizePx: Int, shape: IconShape, pack: String?, custom: IconRef?, tint: IconTintSpec? = null): String =
+        "${key.id}|$sizePx|$shape|$pack|${custom?.pack}:${custom?.drawable}|${tint?.key}"
+
+    /** Saves a picked photo as an icon file and returns its reference. */
+    fun savePhotoIcon(bitmap: Bitmap): IconRef? = try {
+        val dir = java.io.File(context.filesDir, "icons").apply { mkdirs() }
+        val side = minOf(bitmap.width, bitmap.height)
+        val square = Bitmap.createBitmap(bitmap, (bitmap.width - side) / 2, (bitmap.height - side) / 2, side, side)
+        val scaled = Bitmap.createScaledBitmap(square, 256, 256, true)
+        val name = "icon_" + System.currentTimeMillis() + ".png"
+        java.io.File(dir, name).outputStream().use { scaled.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        IconRef(PHOTO_ICON_PACK, name)
+    } catch (e: Exception) {
+        Log.w(TAG, "Saving photo icon failed", e)
+        null
+    }
+
+    private fun photoBitmap(name: String): Bitmap? = try {
+        android.graphics.BitmapFactory.decodeFile(java.io.File(java.io.File(context.filesDir, "icons"), name).path)
+    } catch (e: Exception) {
+        null
+    }
 
     fun cachedIcon(cacheKey: String): IconImage? = iconCache.get(cacheKey)
 
-    suspend fun loadIcon(key: AppKey, sizePx: Int, shape: IconShape, pack: String?, custom: IconRef?): IconImage? =
+    suspend fun loadIcon(key: AppKey, sizePx: Int, shape: IconShape, pack: String?, custom: IconRef?, tint: IconTintSpec? = null): IconImage? =
         withContext(Dispatchers.Default) {
-            val cacheKey = iconCacheKey(key, sizePx, shape, pack, custom)
+            val cacheKey = iconCacheKey(key, sizePx, shape, pack, custom, tint)
             iconCache.get(cacheKey)?.let { return@withContext it }
-            val drawable = resolveDrawable(key, pack, custom) ?: return@withContext null
+            val size = sizePx.coerceAtLeast(8)
+            if (custom?.pack == PHOTO_ICON_PACK) {
+                val photo = photoBitmap(custom.drawable)
+                if (photo != null) {
+                    val img = IconImage(Bitmap.createScaledBitmap(photo, size, size, true).asImageBitmap(), clip = true)
+                    iconCache.put(cacheKey, img)
+                    return@withContext img
+                }
+            }
+            val drawable = resolveDrawable(key, pack, custom?.takeIf { it.pack != PHOTO_ICON_PACK }) ?: return@withContext null
             val image = try {
-                render(drawable, sizePx.coerceAtLeast(8), shape)
+                if (tint != null && tint.mode != IconTint.OFF) renderTinted(drawable, size, shape, tint) else render(drawable, size, shape)
             } catch (e: Exception) {
                 Log.w(TAG, "Icon render failed for $key", e)
                 null
             }
             image?.also { iconCache.put(cacheKey, it) }
         }
+
+    /** Palette-colored icon: duotone ([IconTint.TINTED]) or a single-color glyph on a tinted tile ([IconTint.MONO]). */
+    private fun renderTinted(drawable: Drawable, size: Int, shape: IconShape, t: IconTintSpec): IconImage {
+        val adaptive = drawable as? AdaptiveIconDrawable
+        if (t.mode == IconTint.MONO) {
+            val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bitmap)
+            canvas.drawColor(t.dark)
+            val mono = if (android.os.Build.VERSION.SDK_INT >= 33) adaptive?.monochrome else null
+            val inset = size / 4
+            val glyphColor = androidx.core.graphics.ColorUtils.blendARGB(0xFFFFFFFF.toInt(), t.light, t.strength.coerceIn(0f, 1f))
+            if (mono != null) {
+                mono.setBounds(-inset, -inset, size + inset, size + inset)
+                mono.setTint(glyphColor)
+                mono.draw(canvas)
+            } else {
+                // No monochrome layer: use the icon's own brightness as a mask for the glyph.
+                val src = render(drawable, size, if (adaptive != null) shape else IconShape.SYSTEM)
+                val raw = src.bitmap.asAndroidBitmap()
+                val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG)
+                val pad = size * 0.16f
+                val glyph = luminanceMask(raw, glyphColor)
+                canvas.drawBitmap(glyph, null, android.graphics.RectF(pad, pad, size - pad, size - pad), paint)
+            }
+            return IconImage(bitmap.asImageBitmap(), clip = true)
+        }
+        val base = render(drawable, size, shape)
+        val raw = base.bitmap.asAndroidBitmap()
+        val out = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val dr = android.graphics.Color.red(t.dark).toFloat()
+        val dg = android.graphics.Color.green(t.dark).toFloat()
+        val db = android.graphics.Color.blue(t.dark).toFloat()
+        val lr = android.graphics.Color.red(t.light).toFloat()
+        val lg = android.graphics.Color.green(t.light).toFloat()
+        val lb = android.graphics.Color.blue(t.light).toFloat()
+        val k = t.strength.coerceIn(0f, 1f)
+        // Duotone: luminance maps from the palette's dark color to its accent, blended with the original by [k].
+        fun row(d: Float, l: Float, keep: Int): FloatArray {
+            val span = (l - d) / 255f
+            val r = floatArrayOf(0.299f * span * k, 0.587f * span * k, 0.114f * span * k, 0f, d * k)
+            r[keep] += 1f - k
+            return r
+        }
+        val m = android.graphics.ColorMatrix(row(dr, lr, 0) + row(dg, lg, 1) + row(db, lb, 2) + floatArrayOf(0f, 0f, 0f, 1f, 0f))
+        val paint = android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG).apply { colorFilter = android.graphics.ColorMatrixColorFilter(m) }
+        Canvas(out).drawBitmap(raw, 0f, 0f, paint)
+        return IconImage(out.asImageBitmap(), base.clip)
+    }
+
+    /** White-on-transparent glyph from an icon: bright and dark details both show, the flat background drops out. */
+    private fun luminanceMask(src: Bitmap, color: Int): Bitmap {
+        val w = src.width
+        val h = src.height
+        val px = IntArray(w * h)
+        src.getPixels(px, 0, w, 0, 0, w, h)
+        // The most common luminance is treated as the background.
+        val hist = IntArray(32)
+        val lum = FloatArray(px.size)
+        for (i in px.indices) {
+            val c = px[i]
+            val a = android.graphics.Color.alpha(c)
+            val l = (0.299f * android.graphics.Color.red(c) + 0.587f * android.graphics.Color.green(c) + 0.114f * android.graphics.Color.blue(c)) / 255f
+            lum[i] = l
+            if (a > 200) hist[(l * 31).toInt()]++
+        }
+        val bg = (hist.indices.maxByOrNull { hist[it] } ?: 0) / 31f
+        val out = IntArray(px.size)
+        for (i in px.indices) {
+            val a = android.graphics.Color.alpha(px[i]) / 255f
+            val diff = (kotlin.math.abs(lum[i] - bg) * 3.2f).coerceIn(0f, 1f)
+            val alpha = (a * diff * 255).toInt()
+            out[i] = (alpha shl 24) or (color and 0xFFFFFF)
+        }
+        return Bitmap.createBitmap(out, w, h, Bitmap.Config.ARGB_8888)
+    }
 
     suspend fun loadPackDrawable(pack: String, name: String, sizePx: Int): ImageBitmap? =
         withContext(Dispatchers.Default) {

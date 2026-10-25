@@ -19,6 +19,7 @@ enum class ForgeKind(val label: String, val title: String, val w: Int, val h: In
     GREETING("Greeting", "", 4, 1, "Good morning / afternoon / evening with the date"),
     SEARCH("Search bar", "", 4, 1, "Tap to search your apps or the web"),
     BATTERY("Battery", "BATTERY", 2, 2, "Big charge ring with time-to-full while charging"),
+    STACK("Widget stack", "", 4, 2, "Several widgets in one spot — swipe up or down to flip through them"),
 }
 
 @Serializable
@@ -109,6 +110,10 @@ data class ForgeOptions(
     val greetingName: String = "",
     // search
     val searchHint: String = "Search apps & the web",
+    // widget stack
+    val stackKinds: List<ForgeKind> = listOf(ForgeKind.CLOCK, ForgeKind.MUSIC, ForgeKind.WEATHER, ForgeKind.CALENDAR),
+    val stackAutoMusic: Boolean = true,
+    val stackAutoRotate: Boolean = false,
 )
 
 @Serializable
@@ -132,6 +137,7 @@ fun defaultLook(kind: ForgeKind): PanelLook = when (kind) {
     ForgeKind.SHELF -> PanelLook(background = PanelBackground.FROSTED, showTitle = false, radius = 26)
     ForgeKind.SEARCH -> PanelLook(background = PanelBackground.FROSTED, showTitle = false, radius = 40)
     ForgeKind.CALENDAR -> PanelLook(showTitle = false)
+    ForgeKind.STACK -> PanelLook(background = PanelBackground.FROSTED)
     else -> PanelLook()
 }
 

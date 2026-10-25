@@ -403,11 +403,11 @@ private fun DockSlot(
         ) {
             when (entry) {
                 is DockEntry.Pinned -> when (val item = entry.item) {
-                    is AppItem -> AppIcon(item.app, iconSize)
-                    is FolderItem -> FolderIcon(item, iconSize)
+                    is AppItem -> AppIcon(item.app, iconSize, dot = true)
+                    is FolderItem -> FolderIcon(item, iconSize, dot = true)
                     is WidgetItem, is ForgeWidgetItem -> Unit
                 }
-                is DockEntry.Recent -> AppIcon(entry.app, iconSize)
+                is DockEntry.Recent -> AppIcon(entry.app, iconSize, dot = true)
             }
             if (showLabel) {
                 Spacer(Modifier.height(2.dp))

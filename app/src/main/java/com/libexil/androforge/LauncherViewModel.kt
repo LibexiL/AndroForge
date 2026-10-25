@@ -66,6 +66,7 @@ sealed interface UiEvent {
     data object OpenDrawer : UiEvent
     data object CloseDrawer : UiEvent
     data class ScrollToPage(val page: Int) : UiEvent
+    data class Gesture(val slot: com.libexil.androforge.data.GestureSlot) : UiEvent
 }
 
 class LauncherViewModel(application: Application) : AndroidViewModel(application) {
@@ -88,6 +89,26 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     var hiddenAppsOpen by mutableStateOf(false)
     var editForgeId by mutableStateOf<String?>(null)
     var paletteBrowserOpen by mutableStateOf(false)
+    var privateOpen by mutableStateOf(false)
+    var gistDialogOpen by mutableStateOf(false)
+    var whatsNew by mutableStateOf<String?>(null)
+    var crashLog by mutableStateOf<String?>(null)
+    /** The activity, while it exists (permissions, fingerprint prompt, pickers). */
+    var host: LauncherHost? = null
+
+    /** Opens hidden apps, asking for a fingerprint first if that's turned on. */
+    fun unlockPrivate(onOk: () -> Unit) {
+        if (!state.value.settings.privateLock) {
+            onOk()
+            return
+        }
+        val h = host
+        if (h == null) {
+            toast("Couldn't show the fingerprint prompt")
+            return
+        }
+        h.authenticate("Unlock private apps", onOk)
+    }
     var searchFocusTick by mutableIntStateOf(0)
     var currentPage by mutableIntStateOf(0)
 
@@ -189,10 +210,70 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun toast(msg: String) = Toast.makeText(app, msg, Toast.LENGTH_SHORT).show()
 
     init {
+        val s0 = state.value
+        if (s0.lastSeenVersion < Updater.currentVersionCode) {
+            // Only people who were already using AndroForge get "What's new".
+            if (s0.initialized && s0.lastSeenVersion != 0 || s0.initialized && s0.lastUpdateCheck > 0) {
+                whatsNew = runCatching {
+                    app.resources.openRawResource(R.raw.whats_new).bufferedReader().readText()
+                }.getOrNull()
+            }
+            store.update { it.copy(lastSeenVersion = Updater.currentVersionCode) }
+        }
+        crashLog = CrashReporter.pending(app)
         viewModelScope.launch {
             repo.loaded.first { it }
             if (!state.value.initialized) seedDefaults()
         }
+    }
+
+    // ---------------------------------------------------------------- GitHub backup
+
+    var gistBusy by mutableStateOf(false)
+        private set
+
+    fun gistBackup(silent: Boolean = false) {
+        if (gistBusy) return
+        gistBusy = true
+        viewModelScope.launch {
+            val r = com.libexil.androforge.data.GistBackup.backup(app, store.exportJson())
+            gistBusy = false
+            when (r) {
+                is com.libexil.androforge.data.GistBackup.Result.Ok -> {
+                    store.update { it.copy(lastGistBackup = System.currentTimeMillis()) }
+                    if (!silent) toast(r.message)
+                }
+                is com.libexil.androforge.data.GistBackup.Result.Failed -> if (!silent) toast(r.message)
+            }
+        }
+    }
+
+    fun gistRestore() {
+        if (gistBusy) return
+        gistBusy = true
+        viewModelScope.launch {
+            val (text, error) = com.libexil.androforge.data.GistBackup.fetch(app)
+            gistBusy = false
+            if (text == null) {
+                toast(error ?: "Restore failed")
+                return@launch
+            }
+            if (store.importJson(text)) {
+                repo.invalidateIcons()
+                toast("Restored from GitHub (widgets from other apps need re-adding)")
+                gistDialogOpen = false
+            } else {
+                toast("That backup couldn't be read")
+            }
+        }
+    }
+
+    /** Once a day, when the launcher goes to the background. */
+    fun maybeAutoBackup() {
+        val s = state.value
+        if (!s.settings.autoGistBackup || com.libexil.androforge.data.GistBackup.token(app) == null) return
+        if (System.currentTimeMillis() - s.lastGistBackup < 20 * 60 * 60 * 1000L) return
+        gistBackup(silent = true)
     }
 
     /** First run: fill the dock with the default phone/messages/browser/camera apps. */
@@ -517,6 +598,9 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             selecting -> stopSelecting()
             editForgeId != null -> editForgeId = null
             paletteBrowserOpen -> paletteBrowserOpen = false
+            privateOpen -> privateOpen = false
+            gistDialogOpen -> gistDialogOpen = false
+            whatsNew != null -> whatsNew = null
             iconPickerFor != null -> iconPickerFor = null
             editApp != null -> editApp = null
             renameFolderId != null -> renameFolderId = null
@@ -615,4 +699,6 @@ interface LauncherHost {
     fun importPalette()
     fun exportPalette(palette: com.libexil.androforge.data.ForgePalette)
     fun pickPaletteImage()
+    fun pickIconPhoto(key: AppKey)
+    fun authenticate(title: String, onSuccess: () -> Unit)
 }

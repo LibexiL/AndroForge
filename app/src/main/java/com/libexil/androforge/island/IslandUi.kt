@@ -117,6 +117,7 @@ import com.libexil.androforge.data.VizStyle
 import com.libexil.androforge.live.AudioViz
 import com.libexil.androforge.live.BatteryInfo
 import com.libexil.androforge.live.CallState
+import com.libexil.androforge.live.LiveKind
 import com.libexil.androforge.live.EventKind
 import com.libexil.androforge.live.IslandEvent
 import com.libexil.androforge.live.MediaHub
@@ -142,8 +143,21 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-private enum class Mode { HIDDEN, IDLE, MUSIC, LIVE, CALL, EVENT, PEEK, INCOMING, PLAYER, GLANCE }
-private enum class Panel { NONE, PLAYER, GLANCE }
+private enum class Mode { HIDDEN, IDLE, MUSIC, LIVE, CALL, EVENT, PEEK, INCOMING, PLAYER, GLANCE, LIVECARD }
+private enum class Panel { NONE, PLAYER, GLANCE, LIVE }
+
+/** The color the island uses for an app: the one you picked, or (optionally) the app's own. */
+private fun appTint(pkg: String?, color: Int, s: LauncherSettings): Color? {
+    if (pkg == null) return null
+    s.islandAppColors[pkg]?.let { return Color(it) }
+    if (!s.islandUseAppColor || color == 0) return null
+    // Keep app colors readable on a dark island.
+    val hsl = FloatArray(3)
+    androidx.core.graphics.ColorUtils.colorToHSL(color, hsl)
+    hsl[2] = hsl[2].coerceIn(0.5f, 0.72f)
+    hsl[1] = hsl[1].coerceAtLeast(0.35f)
+    return Color(androidx.core.graphics.ColorUtils.HSLToColor(hsl))
+}
 
 private val Green = Color(0xFF30A46C)
 private val Red = Color(0xFFE5484D)
@@ -193,7 +207,7 @@ fun IslandContent(service: AccessibilityService, geo: IslandGeometry) {
     LaunchedEffect(peek?.key) { if (peek == null || peek.key != replyKey) replyKey = null }
     LaunchedEffect(event?.at) {
         val e = event ?: return@LaunchedEffect
-        delay(if (e.kind == EventKind.HEADPHONES) 4000 else 2800)
+        delay(if (e.kind == EventKind.HEADPHONES) 4000 else if (e.kind == EventKind.CHARGING && s.islandChargeAnimation) 3400 else 2800)
         if (SystemMonitor.event.value?.at == e.at) SystemMonitor.clearEvent()
     }
 
@@ -213,6 +227,7 @@ fun IslandContent(service: AccessibilityService, geo: IslandGeometry) {
         incoming != null -> Mode.INCOMING
         panel == Panel.PLAYER && m != null -> Mode.PLAYER
         panel == Panel.GLANCE -> Mode.GLANCE
+        panel == Panel.LIVE && live != null -> Mode.LIVECARD
         peek != null && s.islandNotifications -> Mode.PEEK
         ev != null -> Mode.EVENT
         ongoingCall != null -> Mode.CALL
@@ -222,6 +237,7 @@ fun IslandContent(service: AccessibilityService, geo: IslandGeometry) {
         else -> Mode.IDLE
     }
     LaunchedEffect(m == null) { if (m == null && panel == Panel.PLAYER) panel = Panel.NONE }
+    LaunchedEffect(live == null) { if (live == null && panel == Panel.LIVE) panel = Panel.NONE }
 
     if (mode == Mode.HIDDEN) {
         Box(Modifier.size(1.dp))
@@ -246,9 +262,16 @@ fun IslandContent(service: AccessibilityService, geo: IslandGeometry) {
             pal.background, pal.foreground, pal.muted,
         )
     }
-    val big = mode in setOf(Mode.PEEK, Mode.INCOMING, Mode.PLAYER, Mode.GLANCE)
-    val shape = RoundedCornerShape(if (big) 30.dp else h / 2)
+    val charging = mode == Mode.EVENT && ev?.kind == EventKind.CHARGING && s.islandChargeAnimation
+    val big = mode in setOf(Mode.PEEK, Mode.INCOMING, Mode.PLAYER, Mode.GLANCE, Mode.LIVECARD) || charging
     val glow = s.islandGlow && mode != Mode.IDLE
+    val focusApp = when (mode) {
+        Mode.PEEK -> peek?.let { appTint(it.pkg, it.color, s) }
+        Mode.LIVE, Mode.LIVECARD -> live?.let { appTint(it.pkg, it.color, s) }
+        Mode.INCOMING -> incoming?.let { appTint(it.pkg, it.color, s) }
+        Mode.MUSIC, Mode.PLAYER -> m?.pkg?.let { pkg -> s.islandAppColors[pkg]?.let { Color(it) } }
+        else -> null
+    }
 
     // Second bubble beside the pill (like iOS when two things are running at once).
     val bubbleMusic = s.islandBubble && musicOn && (mode == Mode.CALL || mode == Mode.LIVE)
@@ -259,7 +282,7 @@ fun IslandContent(service: AccessibilityService, geo: IslandGeometry) {
         IslandMorph(
             corner = if (big) 30.dp else h / 2,
             bg = colors.bg,
-            border = if (glow) Brush.linearGradient(pal.gradient.map { it.copy(alpha = 0.75f) }) else null,
+            border = if (!glow) null else if (focusApp != null) SolidColor(focusApp.copy(alpha = 0.85f)) else Brush.linearGradient(pal.gradient.map { it.copy(alpha = 0.75f) }),
             motion = motion,
             modifier = Modifier
                 .pointerInput(mode, m?.pkg, peek?.key, live?.key, ongoingCall?.key) {
@@ -276,7 +299,8 @@ fun IslandContent(service: AccessibilityService, geo: IslandGeometry) {
                                 }
                                 Mode.MUSIC -> panel = Panel.PLAYER
                                 Mode.CALL -> ongoingCall?.let { NotifHub.open(it, context) }
-                                Mode.LIVE -> live?.let { NotifHub.open(it, context) }
+                                Mode.LIVE -> panel = Panel.LIVE
+                                Mode.LIVECARD -> live?.let { NotifHub.open(it, context) }
                                 Mode.PEEK -> peek?.let { NotifHub.open(it, context) }
                                 Mode.EVENT -> SystemMonitor.clearEvent()
                                 Mode.INCOMING -> incoming?.let { NotifHub.send(it.contentIntent, context) }
@@ -301,7 +325,8 @@ fun IslandContent(service: AccessibilityService, geo: IslandGeometry) {
                             if (total > 40f) {
                                 when (mode) {
                                     Mode.MUSIC -> panel = Panel.PLAYER
-                                    Mode.IDLE, Mode.CALL, Mode.LIVE, Mode.EVENT -> panel = Panel.GLANCE
+                                    Mode.LIVE -> panel = Panel.LIVE
+                                    Mode.IDLE, Mode.CALL, Mode.EVENT -> panel = Panel.GLANCE
                                     else -> geo.openShade()
                                 }
                             } else if (total < -40f) {
@@ -328,8 +353,9 @@ fun IslandContent(service: AccessibilityService, geo: IslandGeometry) {
                     Mode.IDLE -> IdlePill(s, h)
                     Mode.MUSIC -> m?.let { MusicPill(it, s, h, pal, colors, vizOk) } ?: IdlePill(s, h)
                     Mode.CALL -> ongoingCall?.let { CallPill(it, s, h, colors) } ?: IdlePill(s, h)
-                    Mode.LIVE -> live?.let { LivePill(it, s, h, pal, colors) } ?: IdlePill(s, h)
-                    Mode.EVENT -> ev?.let { EventPill(it, h, pal, colors) } ?: IdlePill(s, h)
+                    Mode.LIVE -> live?.let { LivePill(it, s, h, pal, colors, appTint(it.pkg, it.color, s)) } ?: IdlePill(s, h)
+                    Mode.LIVECARD -> live?.let { LiveCard(it, pal, colors, maxW, appTint(it.pkg, it.color, s), ::touched) { panel = Panel.NONE } } ?: IdlePill(s, h)
+                    Mode.EVENT -> ev?.let { if (charging) ChargingCard(it, h, pal, colors) else EventPill(it, h, pal, colors) } ?: IdlePill(s, h)
                     Mode.PEEK -> peek?.let { p ->
                         PeekCard(
                             p, s, pal, colors, maxW,
@@ -524,31 +550,195 @@ private fun CallPill(e: NotifEntry, s: LauncherSettings, h: Dp, c: IslandColors)
 }
 
 @Composable
-private fun LivePill(e: NotifEntry, s: LauncherSettings, h: Dp, pal: Pal, c: IslandColors) {
-    val accent = if (e.color != 0) Color(e.color) else pal.accent
+private fun LivePill(e: NotifEntry, s: LauncherSettings, h: Dp, pal: Pal, c: IslandColors, tint: Color?) {
+    val accent = tint ?: if (e.color != 0) Color(e.color) else pal.accent
     val time = chrono(e)
+    val kind = e.liveKind
     Row(
         Modifier
             .height(h)
-            .width((s.islandWidthDp + 110).dp)
-            .padding(horizontal = 10.dp),
+            .width((s.islandWidthDp + 130).dp)
+            .padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.size(h - 8.dp), contentAlignment = Alignment.Center) {
             val p = e.progress
-            if (p != null && p >= 0f) {
-                Canvas(Modifier.fillMaxSize()) {
-                    val sw = size.minDimension * 0.12f
-                    drawArc(c.muted.copy(alpha = 0.3f), 0f, 360f, false, Offset(sw / 2, sw / 2), Size(size.width - sw, size.height - sw), style = Stroke(sw))
-                    drawArc(accent, -90f, 360f * p, false, Offset(sw / 2, sw / 2), Size(size.width - sw, size.height - sw), style = Stroke(sw, cap = StrokeCap.Round))
+            when {
+                kind == LiveKind.NAVIGATION && e.largeIcon != null ->
+                    Image(e.largeIcon, null, colorFilter = ColorFilter.tint(accent), modifier = Modifier.size(h - 8.dp))
+                p != null && p >= 0f -> {
+                    Canvas(Modifier.fillMaxSize()) {
+                        val sw = size.minDimension * 0.12f
+                        drawArc(c.muted.copy(alpha = 0.3f), 0f, 360f, false, Offset(sw / 2, sw / 2), Size(size.width - sw, size.height - sw), style = Stroke(sw))
+                        drawArc(accent, -90f, 360f * p, false, Offset(sw / 2, sw / 2), Size(size.width - sw, size.height - sw), style = Stroke(sw, cap = StrokeCap.Round))
+                    }
+                    e.smallIcon?.let { Image(it, null, colorFilter = ColorFilter.tint(accent), modifier = Modifier.size((h - 8.dp) * 0.5f)) }
                 }
+                kind == LiveKind.TIMER || kind == LiveKind.STOPWATCH -> {
+                    // A ring that ticks once a second, like a clock face.
+                    val now = rememberNow(true)
+                    val sec = ((now / 1000) % 60).toInt()
+                    Canvas(Modifier.fillMaxSize()) {
+                        val sw = size.minDimension * 0.12f
+                        drawArc(c.muted.copy(alpha = 0.25f), 0f, 360f, false, Offset(sw / 2, sw / 2), Size(size.width - sw, size.height - sw), style = Stroke(sw))
+                        val sweep = if (kind == LiveKind.TIMER) 360f * (60 - sec) / 60f else 360f * sec / 60f
+                        drawArc(accent, -90f, sweep, false, Offset(sw / 2, sw / 2), Size(size.width - sw, size.height - sw), style = Stroke(sw, cap = StrokeCap.Round))
+                    }
+                    e.smallIcon?.let { Image(it, null, colorFilter = ColorFilter.tint(accent), modifier = Modifier.size((h - 8.dp) * 0.48f)) }
+                }
+                kind == LiveKind.RECORDING -> {
+                    val blink = rememberNow(true) / 1000 % 2 == 0L
+                    Box(Modifier.size((h - 8.dp) * 0.45f).clip(CircleShape).background(Red.copy(alpha = if (blink) 1f else 0.4f)))
+                }
+                else -> e.smallIcon?.let { Image(it, null, colorFilter = ColorFilter.tint(accent), modifier = Modifier.size((h - 8.dp) * 0.6f)) }
             }
-            e.smallIcon?.let { Image(it, null, colorFilter = ColorFilter.tint(accent), modifier = Modifier.size((h - 8.dp) * 0.55f)) }
         }
         Spacer(Modifier.width(8.dp))
-        Text(e.title, color = c.fg, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-        val right = time ?: e.progress?.let { if (it < 0f) "…" else "${(it * 100).toInt()}%" } ?: ""
+        val middle = when (kind) {
+            LiveKind.NAVIGATION -> e.text.ifBlank { e.title }
+            LiveKind.DELIVERY -> e.title + if (e.text.isNotBlank()) " \u00b7 " + e.text else ""
+            else -> e.title
+        }
+        Text(
+            middle, color = c.fg, fontSize = 12.sp, maxLines = 1,
+            modifier = Modifier
+                .weight(1f)
+                .basicMarquee(iterations = Int.MAX_VALUE, initialDelayMillis = 1500),
+        )
+        Spacer(Modifier.width(6.dp))
+        val right = when (kind) {
+            LiveKind.NAVIGATION -> e.title.takeIf { e.text.isNotBlank() }?.take(12) ?: ""
+            else -> time ?: e.progress?.let { if (it < 0f) "\u2026" else "${(it * 100).toInt()}%" } ?: ""
+        }
         Text(right, color = accent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+    }
+}
+
+/** A live activity opened up: big readout, details and its buttons (pause, lap, stop\u2026). */
+@Composable
+private fun LiveCard(e: NotifEntry, pal: Pal, c: IslandColors, maxW: Dp, tint: Color?, touched: () -> Unit, onClose: () -> Unit) {
+    val context = LocalContext.current
+    val accent = tint ?: if (e.color != 0) Color(e.color) else pal.accent
+    val time = chrono(e)
+    val kind = e.liveKind
+    Column(Modifier.width(maxW).padding(16.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(52.dp).clip(RoundedCornerShape(16.dp)).background(accent.copy(alpha = 0.18f)), contentAlignment = Alignment.Center) {
+                val icon = if (kind == LiveKind.NAVIGATION) e.largeIcon ?: e.smallIcon else e.smallIcon
+                icon?.let { Image(it, null, colorFilter = ColorFilter.tint(accent), modifier = Modifier.size(if (kind == LiveKind.NAVIGATION) 40.dp else 26.dp)) }
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(e.appName.uppercase(), color = c.muted, fontSize = 10.5.sp, letterSpacing = 1.sp, maxLines = 1)
+                Text(e.title, color = c.fg, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                if (e.text.isNotBlank()) Text(e.text, color = c.fg.copy(alpha = 0.75f), fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                e.subText?.takeIf { it != e.text }?.let { Text(it, color = c.muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+            }
+            if (time != null) {
+                Spacer(Modifier.width(8.dp))
+                Text(time, color = accent, fontSize = 26.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            }
+        }
+        val p = e.progress
+        if (p != null) {
+            Spacer(Modifier.height(12.dp))
+            Box(Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)).background(c.muted.copy(alpha = 0.25f))) {
+                if (p >= 0f) {
+                    Box(Modifier.fillMaxWidth(p.coerceIn(0f, 1f)).fillMaxHeight().clip(RoundedCornerShape(3.dp)).background(accent))
+                } else {
+                    val now = rememberNow(true)
+                    val x = (now / 1000 % 3) / 3f
+                    Box(Modifier.fillMaxWidth((x + 0.3f).coerceAtMost(1f)).fillMaxHeight().background(accent.copy(alpha = 0.7f)))
+                }
+            }
+        }
+        val actions = e.actions.filter { !it.isReply }.take(3)
+        if (actions.isNotEmpty()) {
+            Spacer(Modifier.height(12.dp))
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                actions.forEach { a ->
+                    ActionChip(a.title, accent.copy(alpha = 0.25f), c.fg) {
+                        touched()
+                        NotifHub.runAction(a, context)
+                    }
+                }
+                ActionChip("Open", c.fg.copy(alpha = 0.12f), c.fg) {
+                    NotifHub.open(e, context)
+                    onClose()
+                }
+            }
+        }
+    }
+}
+
+/** Plugging in: a battery that fills up with a moving liquid edge. */
+@Composable
+private fun ChargingCard(e: IslandEvent, h: Dp, pal: Pal, c: IslandColors) {
+    val green = pal.ansi.getOrElse(2) { Green }
+    val level = (e.value ?: 0).coerceIn(0, 100)
+    val fill = remember { Animatable(0f) }
+    LaunchedEffect(e.at) {
+        fill.snapTo(0f)
+        fill.animateTo(level / 100f, tween(1400))
+    }
+    val now = rememberNow(false)
+    var phase by remember { mutableStateOf(0f) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            androidx.compose.runtime.withFrameNanos { phase = (it / 1_000_000_000.0 * 3.0).toFloat() }
+        }
+    }
+    Row(
+        Modifier
+            .height(h * 2.1f)
+            .widthIn(min = 250.dp)
+            .padding(horizontal = 18.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Canvas(Modifier.size(width = 58.dp, height = 30.dp)) {
+            val bw = size.width * 0.9f
+            val r = CornerRadius(size.height * 0.25f)
+            drawRoundRect(c.fg.copy(alpha = 0.6f), Offset.Zero, Size(bw, size.height), r, style = Stroke(2.5f))
+            drawRoundRect(c.fg.copy(alpha = 0.6f), Offset(bw + 2f, size.height * 0.32f), Size(size.width - bw - 2f, size.height * 0.36f), CornerRadius(3f))
+            val inset = 4f
+            val fw = (bw - inset * 2) * fill.value
+            val path = Path()
+            val top = inset
+            val bottom = size.height - inset
+            path.moveTo(inset, top)
+            // Wavy front edge.
+            val steps = 12
+            for (i in 0..steps) {
+                val y = top + (bottom - top) * i / steps
+                val x = inset + fw + kotlin.math.sin(phase + i * 0.9f) * 3f
+                path.lineTo(x.coerceAtLeast(inset), y)
+            }
+            path.lineTo(inset, bottom)
+            path.close()
+            clipPath(Path().apply { addRoundRect(RoundRect(inset, inset, bw - inset, size.height - inset, CornerRadius(size.height * 0.18f))) }) {
+                drawPath(path, Brush.horizontalGradient(listOf(green.copy(alpha = 0.7f), green)))
+            }
+            // Bolt
+            val bx = bw / 2
+            val by = size.height / 2
+            val bolt = Path().apply {
+                moveTo(bx + 2f, by - 11f)
+                lineTo(bx - 6f, by + 2f)
+                lineTo(bx - 0.5f, by + 2f)
+                lineTo(bx - 2f, by + 11f)
+                lineTo(bx + 6f, by - 2f)
+                lineTo(bx + 0.5f, by - 2f)
+                close()
+            }
+            drawPath(bolt, Color.White)
+        }
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f, fill = false)) {
+            Text(e.title, color = c.fg, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+            Text(SimpleDateFormat("h:mm", Locale.getDefault()).format(Date(now)), color = c.muted, fontSize = 12.sp)
+        }
+        Spacer(Modifier.width(14.dp))
+        Text("${(fill.value * 100).toInt()}%", color = green, fontSize = 24.sp, fontWeight = FontWeight.Bold)
     }
 }
 

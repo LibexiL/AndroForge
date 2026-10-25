@@ -146,6 +146,26 @@ object Palettes {
     private var cachedId = -2
 
     fun clearWallpaperCache() = synchronized(this) { cachedId = -2; cached = null }
+
+    /** Bumped when the wallpaper changes, so everything drawing the palette recomputes. */
+    val wallpaperTick = kotlinx.coroutines.flow.MutableStateFlow(0)
+    private var seenWallpaperId = Int.MIN_VALUE
+
+    /** Call on wallpaper broadcasts and when the launcher resumes. Returns true if it really changed. */
+    fun checkWallpaperChanged(context: Context): Boolean {
+        val id = try {
+            WallpaperManager.getInstance(context).getWallpaperId(WallpaperManager.FLAG_SYSTEM)
+        } catch (e: Throwable) {
+            -1
+        }
+        val first = seenWallpaperId == Int.MIN_VALUE
+        if (!first && id == seenWallpaperId && id >= 0) return false
+        seenWallpaperId = id
+        if (first) return false
+        clearWallpaperCache()
+        wallpaperTick.value = wallpaperTick.value + 1
+        return true
+    }
     private var cached: ForgePalette? = null
 
     /**

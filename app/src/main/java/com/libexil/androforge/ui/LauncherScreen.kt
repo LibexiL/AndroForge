@@ -196,18 +196,16 @@ fun LauncherScreen(vm: LauncherViewModel, host: LauncherHost) {
         vm.finishDrag(drag, host)
     }
 
-    fun perform(action: GestureAction) {
-        when (action) {
-            GestureAction.NONE -> Unit
+    fun perform(slot: com.libexil.androforge.data.GestureSlot) {
+        val st = vm.state.value.settings
+        when (com.libexil.androforge.live.GestureRunner.actionFor(st, slot)) {
             GestureAction.APP_DRAWER -> drawer.open()
             GestureAction.SEARCH -> {
                 drawer.open()
                 vm.searchFocusTick++
             }
-            GestureAction.NOTIFICATIONS -> SystemActions.expandNotifications(context)
-            GestureAction.QUICK_SETTINGS -> SystemActions.expandQuickSettings(context)
-            GestureAction.LOCK_SCREEN -> SystemActions.lockScreen(context)
             GestureAction.LAUNCHER_SETTINGS -> vm.settingsOpen = true
+            else -> com.libexil.androforge.live.GestureRunner.run(context, slot, st)
         }
     }
 
@@ -216,6 +214,7 @@ fun LauncherScreen(vm: LauncherViewModel, host: LauncherHost) {
             when (e) {
                 UiEvent.OpenDrawer -> drawer.open()
                 UiEvent.CloseDrawer -> drawer.close()
+                is UiEvent.Gesture -> perform(e.slot)
                 is UiEvent.ScrollToPage -> if (e.page < pagerState.pageCount) {
                     pagerState.animateScrollToPage(e.page, animationSpec = motion.spring(stiffness = 300f, bouncy = false))
                 }
@@ -240,7 +239,12 @@ fun LauncherScreen(vm: LauncherViewModel, host: LauncherHost) {
         }
     }
 
+    val notifEntries by com.libexil.androforge.live.NotifHub.entries.collectAsStateWithLifecycle()
+    val notifCounts = remember(notifEntries) {
+        notifEntries.filter { it.clearable && it.call == com.libexil.androforge.live.CallState.NONE }.groupingBy { it.pkg }.eachCount()
+    }
     CompositionLocalProvider(
+        LocalNotifCounts provides notifCounts,
         LocalSettings provides settings,
         LocalIconOverrides provides state.icons,
         LocalLabels provides state.labels,
@@ -255,9 +259,16 @@ fun LauncherScreen(vm: LauncherViewModel, host: LauncherHost) {
 
                 // ---------------- home layer
                 val total = remember { floatArrayOf(0f, 0f) } // [0] = distance, [1] = mode
+                val multi = remember { booleanArrayOf(false) }
+                val currentPerform by rememberUpdatedState(::perform)
                 Box(
                     Modifier
                         .fillMaxSize()
+                        .multiFingerGestures(
+                            enabled = drag.source == null && vm.movingWidgetId == null,
+                            swipePx = swipeThreshold * 0.8f,
+                            onMulti = { multi[0] = it },
+                        ) { slot -> currentPerform(slot) }
                         .graphicsLayer {
                             val p = drawer.progress
                             alpha = 1f - p
@@ -269,26 +280,34 @@ fun LauncherScreen(vm: LauncherViewModel, host: LauncherHost) {
                             enabled = drag.source == null && vm.movingWidgetId == null,
                             state = rememberDraggableState { d ->
                                 total[0] += d
+                                if (multi[0] && total[1] == 1f) {
+                                    // Second finger landed: hand the drawer back.
+                                    total[1] = 2f
+                                    drawer.settle(0f)
+                                }
                                 if (total[1] == 0f) {
-                                    total[1] = if (total[0] < 0 && settings.swipeUp == GestureAction.APP_DRAWER) 1f else 2f
+                                    total[1] = if (total[0] < 0 && vm.state.value.settings.swipeUp == GestureAction.APP_DRAWER) 1f else 2f
                                 }
                                 if (total[1] == 1f) drawer.dragBy(d)
                             },
                             onDragStarted = {
                                 total[0] = 0f
-                                total[1] = 0f
+                                total[1] = if (multi[0]) 2f else 0f
                             },
                             onDragStopped = { v ->
                                 if (total[1] == 1f) {
                                     drawer.settle(v)
+                                } else if (multi[0]) {
+                                    // A two-finger gesture already handled this.
                                 } else if (total[0] > swipeThreshold) {
-                                    perform(settings.swipeDown)
+                                    perform(com.libexil.androforge.data.GestureSlot.SWIPE_DOWN)
                                 } else if (total[0] < -swipeThreshold) {
-                                    perform(settings.swipeUp)
+                                    perform(com.libexil.androforge.data.GestureSlot.SWIPE_UP)
                                 }
                             },
                         ),
                 ) {
+                    LiveBackgroundLayer(settings.liveBackground, settings.liveBackgroundOpacity, settings.liveBackgroundSpeed, palette)
                     // Widgets that live UNDER the dock, down to the very bottom edge of the screen.
                     val belowRows = settings.belowDockRows
                     SideEffect { drag.belowRows = belowRows }
@@ -341,7 +360,7 @@ fun LauncherScreen(vm: LauncherViewModel, host: LauncherHost) {
                             pagerState = pagerState,
                             host = host,
                             onDragEnd = onDragEnd,
-                            onDoubleTap = { perform(settings.doubleTap) },
+                            onDoubleTap = { perform(com.libexil.androforge.data.GestureSlot.DOUBLE_TAP) },
                             modifier = Modifier.weight(1f),
                         )
                         if (settings.pageIndicator && state.pageCount > 1) {
@@ -393,6 +412,7 @@ fun LauncherScreen(vm: LauncherViewModel, host: LauncherHost) {
                 vm.menu?.let { ContextMenu(it, vm, host, state, appsById) }
 
                 Dialogs(vm, state, appsById, host)
+                ExtraDialogs(vm, state, apps)
 
                 if (vm.widgetPickerPage != null) WidgetPicker(vm, host)
 
@@ -661,7 +681,7 @@ private fun HomeAppCell(item: AppItem, appLabel: String?, vm: LauncherViewModel,
                 onDragEnd = { endDrag() },
                 onPress = { pressed = it },
             ),
-    ) { AppIcon(item.app, settings.iconSizeDp.dp, Modifier.pressScale(pressed)) }
+    ) { AppIcon(item.app, settings.iconSizeDp.dp, Modifier.pressScale(pressed), dot = true) }
 }
 
 @Composable
@@ -695,7 +715,7 @@ private fun HomeFolderCell(item: FolderItem, vm: LauncherViewModel, drag: DragSt
                 onDragEnd = { endDrag() },
                 onPress = { pressed = it },
             ),
-    ) { FolderIcon(item, settings.iconSizeDp.dp, Modifier.pressScale(pressed)) }
+    ) { FolderIcon(item, settings.iconSizeDp.dp, Modifier.pressScale(pressed), dot = true) }
 }
 
 /** Long-press a widget for its menu; keep holding and move to drag it anywhere. */
@@ -954,4 +974,65 @@ private fun MoveWidgetHint(onCancel: () -> Unit) {
             )
         }
     }
+}
+
+/**
+ * Two-finger swipes and pinch-in on the home screen. Watches without consuming until it's sure,
+ * then consumes so the one-finger swipe and the pager stay out of it.
+ */
+private fun Modifier.multiFingerGestures(
+    enabled: Boolean,
+    swipePx: Float,
+    onMulti: (Boolean) -> Unit,
+    onGesture: (com.libexil.androforge.data.GestureSlot) -> Unit,
+): Modifier = if (!enabled) this else pointerInput(swipePx) {
+    androidx.compose.foundation.gestures.awaitEachGesture {
+        awaitFirstDownAnyPass()
+        onMulti(false)
+        var startSpan = 0f
+        var startY = 0f
+        var fired = false
+        var seenTwo = false
+        while (true) {
+            val ev = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+            val down = ev.changes.filter { it.pressed }
+            if (down.isEmpty()) break
+            if (down.size >= 2) {
+                val a = down[0].position
+                val b = down[1].position
+                val span = (a - b).getDistance()
+                val cy = (a.y + b.y) / 2f
+                if (!seenTwo) {
+                    seenTwo = true
+                    startSpan = span
+                    startY = cy
+                    onMulti(true)
+                }
+                if (!fired) {
+                    val dy = cy - startY
+                    when {
+                        startSpan > 0f && span < startSpan * 0.62f -> {
+                            fired = true
+                            onGesture(com.libexil.androforge.data.GestureSlot.PINCH)
+                        }
+                        dy < -swipePx -> {
+                            fired = true
+                            onGesture(com.libexil.androforge.data.GestureSlot.TWO_UP)
+                        }
+                        dy > swipePx -> {
+                            fired = true
+                            onGesture(com.libexil.androforge.data.GestureSlot.TWO_DOWN)
+                        }
+                    }
+                }
+                ev.changes.forEach { it.consume() }
+            } else if (seenTwo) {
+                ev.changes.forEach { it.consume() }
+            }
+        }
+    }
+}
+
+private suspend fun androidx.compose.ui.input.pointer.AwaitPointerEventScope.awaitFirstDownAnyPass() {
+    androidx.compose.foundation.gestures.awaitFirstDown(requireUnconsumed = false, pass = androidx.compose.ui.input.pointer.PointerEventPass.Initial)
 }

@@ -174,6 +174,7 @@ private fun StyleTab(
             "Shows charge, time until full while charging, and battery temperature.",
             fontSize = 12.sp, color = Color.White.copy(alpha = 0.55f), modifier = Modifier.padding(top = 8.dp),
         )
+        ForgeKind.STACK -> StackEditor(item, pal, set, onRequestLocation)
         ForgeKind.SYSTEM -> {
             EdChips("Gauges", GaugeStyle.entries, o.gaugeStyle, { it.label }) { v -> set { it.copy(gaugeStyle = v) } }
             Text(
@@ -183,6 +184,42 @@ private fun StyleTab(
                 modifier = Modifier.padding(top = 8.dp),
             )
         }
+    }
+}
+
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun StackEditor(
+    item: ForgeWidgetItem,
+    pal: Pal,
+    set: ((ForgeOptions) -> ForgeOptions) -> Unit,
+    onRequestLocation: () -> Unit,
+) {
+    val o = item.options
+    EdLabel("Widgets in this stack")
+    Text("Tap to add or remove. They stack in the order you add them.", fontSize = 12.sp, color = Color.White.copy(alpha = 0.55f))
+    androidx.compose.foundation.layout.FlowRow(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
+        stackableKinds.forEach { k ->
+            val on = k in o.stackKinds
+            androidx.compose.material3.FilterChip(
+                selected = on,
+                onClick = { set { it.copy(stackKinds = if (on) it.stackKinds - k else it.stackKinds + k) } },
+                label = { Text(k.label) },
+            )
+        }
+    }
+    EdSwitch("Show music when it plays", o.stackAutoMusic, "Flips to Now playing as soon as a song starts") { v -> set { it.copy(stackAutoMusic = v) } }
+    EdSwitch("Rotate by itself", o.stackAutoRotate, "Moves to the next widget every 12 seconds") { v -> set { it.copy(stackAutoRotate = v) } }
+    val kinds = o.stackKinds.filter { it != ForgeKind.STACK }
+    if (kinds.isNotEmpty()) {
+        var editing by remember(kinds) { mutableStateOf(kinds.first()) }
+        EdLabel("Customize a widget in the stack")
+        androidx.compose.foundation.layout.FlowRow(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
+            kinds.forEach { k ->
+                androidx.compose.material3.FilterChip(selected = editing == k, onClick = { editing = k }, label = { Text(k.label) })
+            }
+        }
+        StyleTab(item.copy(kind = editing), pal, set, onRequestLocation)
     }
 }
 

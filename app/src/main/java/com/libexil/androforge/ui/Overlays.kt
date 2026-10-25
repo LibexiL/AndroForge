@@ -141,6 +141,11 @@ fun ContextMenu(req: MenuRequest, vm: LauncherViewModel, host: LauncherHost, sta
             is MenuTarget.Home -> when (val item = target.item) {
                 is AppItem -> {
                     add(MenuEntry("Edit", Icons.Default.Edit) { vm.editApp = item.app })
+                    add(MenuEntry("Hide", Icons.Default.Lock) {
+                        vm.setHidden(item.app, true)
+                        if (!state.settings.lockLayout) vm.removeItem(item.id, host)
+                        vm.toast(if (state.settings.privateFolder) "Moved to Private in the app drawer" else "Hidden from the drawer")
+                    })
                     add(MenuEntry("App info", Icons.Default.Info) { repo.openAppInfo(item.app) })
                     add(MenuEntry("Uninstall", Icons.Default.Delete) { repo.uninstall(item.app) })
                     if (!state.settings.lockLayout) add(MenuEntry("Remove", Icons.Default.Close) { vm.removeItem(item.id, host) })
@@ -304,7 +309,12 @@ private fun EditAppDialog(vm: LauncherViewModel, state: LauncherState, key: AppK
                         TextButton(onClick = {
                             vm.editApp = null
                             vm.iconPickerFor = key
-                        }) { Text("Change icon") }
+                        }) { Text("Icon pack icon") }
+                        TextButton(onClick = {
+                            vm.setLabel(key, if (label == original) null else label)
+                            vm.editApp = null
+                            vm.host?.pickIconPhoto(key)
+                        }) { Text("Use a photo") }
                         if (state.icons[key.id] != null) {
                             TextButton(onClick = { vm.setIcon(key, null) }) { Text("Reset icon") }
                         }

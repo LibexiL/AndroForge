@@ -16,6 +16,19 @@ import java.lang.ref.WeakReference
 
 enum class CallState { NONE, INCOMING, ONGOING }
 
+/** What a live activity is, so the island can draw it the right way. */
+enum class LiveKind { TIMER, STOPWATCH, NAVIGATION, DELIVERY, RECORDING, PROGRESS, OTHER }
+
+private val navApps = setOf("com.google.android.apps.maps", "com.waze", "com.here.app.maps", "com.sygic.aura", "com.mapbox.navigation", "net.osmand", "net.osmand.plus", "com.citymapper.app.release")
+private val deliveryApps = setOf(
+    "com.dd.doordash", "com.ubercab", "com.ubercab.eats", "com.ubercab.driver", "me.lyft.android", "com.grubhub.android",
+    "com.instacart.client", "com.postmates.android", "com.gopuff.consumer", "com.amazon.mShop.android.shopping",
+    "com.deliveroo.orderapp", "com.global.foodpanda.android", "com.joelapenna.foursquared", "com.bolt.client", "ee.mtakso.client",
+    "com.dominospizza", "com.pizzahut.android", "com.chipotle.ordering", "com.starbucks.mobilecard", "com.mcdonalds.app",
+    "com.wolt.android", "com.justeat.app.uk", "com.glovoapp", "com.rappi.storekeeper", "com.didiglobal.passenger",
+)
+private val clockApps = setOf("com.google.android.deskclock", "com.sec.android.app.clockpackage", "com.android.deskclock", "com.oneplus.deskclock", "com.miui.clock")
+
 class NotifAction(
     val title: String,
     val intent: PendingIntent?,
@@ -51,10 +64,23 @@ data class NotifEntry(
     /** 0..1, or -1 for indeterminate; null when there is no progress bar. */
     val progress: Float?,
     val urgent: Boolean,
+    val subText: String? = null,
 ) {
+    val liveKind: LiveKind
+        get() = when {
+            category == "navigation" || pkg in navApps -> LiveKind.NAVIGATION
+            pkg in deliveryApps -> LiveKind.DELIVERY
+            chronoBase != null && countDown -> LiveKind.TIMER
+            chronoBase != null && (category == "stopwatch" || pkg in clockApps) -> LiveKind.STOPWATCH
+            chronoBase != null -> LiveKind.RECORDING
+            progress != null -> LiveKind.PROGRESS
+            else -> LiveKind.OTHER
+        }
+
     /** A timer, stopwatch, recording, download or navigation the island can show live. */
     val isLiveActivity: Boolean
-        get() = ongoing && call == CallState.NONE && !urgent && (chronoBase != null || progress != null || category == "navigation" || category == "stopwatch")
+        get() = ongoing && call == CallState.NONE && !urgent &&
+            (chronoBase != null || progress != null || category == "navigation" || category == "stopwatch" || pkg in navApps || pkg in deliveryApps)
 }
 
 /**

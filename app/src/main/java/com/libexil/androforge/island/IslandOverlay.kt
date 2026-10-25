@@ -89,6 +89,17 @@ class IslandGeometry {
     var openShade: () -> Unit = {}
 }
 
+/** The running island's geometry, so the launcher's gestures can open AndroForge's shade. */
+@Volatile
+var activeIslandGeo: IslandGeometry? = null
+    internal set
+
+private var active: IslandGeometry?
+    get() = activeIslandGeo
+    set(v) {
+        activeIslandGeo = v
+    }
+
 /**
  * Draws the dynamic island and the custom status bar as accessibility overlays. These are
  * the only windows an app may place over the system status bar without root.
@@ -124,6 +135,7 @@ class IslandOverlay(private val service: AccessibilityService) {
                 service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_NOTIFICATIONS)
             }
         }
+        active = geo
         scope.launch {
             snapshotFlow { geo.shadeOpen.value }.collect { open -> if (open) ensureShade() }
         }
@@ -153,6 +165,7 @@ class IslandOverlay(private val service: AccessibilityService) {
     }
 
     fun stop() {
+        if (active === geo) active = null
         removeShade()
         screenReceiver?.let { runCatching { service.unregisterReceiver(it) } }
         screenReceiver = null
