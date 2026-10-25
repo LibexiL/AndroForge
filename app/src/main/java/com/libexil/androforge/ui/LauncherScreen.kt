@@ -7,6 +7,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.layout.Arrangement
@@ -986,7 +988,7 @@ private fun Modifier.multiFingerGestures(
     onMulti: (Boolean) -> Unit,
     onGesture: (com.libexil.androforge.data.GestureSlot) -> Unit,
 ): Modifier = if (!enabled) this else pointerInput(swipePx) {
-    androidx.compose.foundation.gestures.awaitEachGesture {
+    awaitEachGesture {
         awaitFirstDownAnyPass()
         onMulti(false)
         var startSpan = 0f
@@ -1034,5 +1036,5 @@ private fun Modifier.multiFingerGestures(
 }
 
 private suspend fun androidx.compose.ui.input.pointer.AwaitPointerEventScope.awaitFirstDownAnyPass() {
-    androidx.compose.foundation.gestures.awaitFirstDown(requireUnconsumed = false, pass = androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+    awaitFirstDown(requireUnconsumed = false, pass = androidx.compose.ui.input.pointer.PointerEventPass.Initial)
 }
