@@ -4,6 +4,7 @@ import android.app.WallpaperManager
 import android.content.Context
 import android.os.Build
 import androidx.core.graphics.ColorUtils
+import androidx.core.graphics.drawable.toBitmap
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -95,88 +96,142 @@ object Palettes {
     private fun fromHsl(h: Float, s: Float, l: Float): String =
         hex(ColorUtils.HSLToColor(floatArrayOf(((h % 360f) + 360f) % 360f, s.coerceIn(0f, 1f), l.coerceIn(0f, 1f))))
 
-    fun fromColors(primary: Int, secondary: Int?, tertiary: Int?): ForgePalette {
+    /**
+     * Builds a dark palette that keeps the source's mood: muted images give muted accents,
+     * vivid ones stay vivid. [dark]/[light] are the image's own shadow / highlight tones when known.
+     */
+    private fun fromTones(primary: Int, secondary: Int?, tertiary: Int?, dark: Int? = null, light: Int? = null, name: String = "From wallpaper"): ForgePalette {
         val p = hsl(primary)
         val hue = p[0]
         val sat = p[1]
-        val s2 = secondary?.let(::hsl)
+        fun accentSat(s: Float) = (s * 1.5f + 0.12f).coerceIn(0.22f, 0.82f)
+        val accent = fromHsl(hue, accentSat(sat), 0.64f)
+        val s2 = secondary?.let(::hsl)?.takeIf { val d = kotlin.math.abs(it[0] - hue); minOf(d, 360f - d) > 18f }
+        val accent2 = if (s2 != null) fromHsl(s2[0], accentSat(s2[1]), 0.7f) else fromHsl(hue + 28f, accentSat(sat) * 0.85f, 0.72f)
         val s3 = tertiary?.let(::hsl)
-        val accent = fromHsl(hue, maxOf(sat, 0.55f).coerceAtMost(0.9f), 0.68f)
-        val accent2 = if (s2 != null && kotlin.math.abs(s2[0] - hue) > 20f) {
-            fromHsl(s2[0], maxOf(s2[1], 0.5f).coerceAtMost(0.9f), 0.7f)
-        } else {
-            fromHsl(hue + 40f, maxOf(sat, 0.5f).coerceAtMost(0.85f), 0.72f)
-        }
-        val tint = (sat * 0.35f).coerceIn(0.06f, 0.28f)
-        val bg = fromHsl(hue, tint, 0.085f)
-        val surface = fromHsl(hue, tint, 0.15f)
-        val fg = fromHsl(hue, 0.18f, 0.88f)
-        val muted = fromHsl(hue, 0.12f, 0.52f)
-        // Terminal colors keep their meaning but lean slightly toward the wallpaper hue.
-        fun ansiHue(base: Float) = base + ((hue - base + 540f) % 360f - 180f) * 0.12f
-        val red = fromHsl(ansiHue(355f), 0.72f, 0.68f)
-        val green = fromHsl(ansiHue(120f), 0.45f, 0.64f)
-        val yellow = fromHsl(ansiHue(42f), 0.78f, 0.7f)
-        val blue = fromHsl(ansiHue(215f), 0.7f, 0.7f)
-        val magenta = fromHsl(ansiHue(295f), 0.55f, 0.74f)
-        val cyan = fromHsl(ansiHue(180f), 0.5f, 0.66f)
-        val third = s3?.let { fromHsl(it[0], maxOf(it[1], 0.5f).coerceAtMost(0.9f), 0.66f) }
-        val gradient = listOfNotNull(accent2, accent, third, magenta).distinct().take(4)
-        return build("From wallpaper", bg, surface, fg, muted, accent, accent2, red, green, yellow, blue, magenta, cyan, gradient)
+        val third = s3?.let { fromHsl(it[0], accentSat(it[1]), 0.6f) }
+        val d = dark?.let(::hsl)
+        val bgHue = d?.get(0) ?: hue
+        val bgSat = (d?.get(1) ?: sat * 0.5f).coerceIn(0.04f, 0.32f)
+        val bg = fromHsl(bgHue, bgSat, 0.085f)
+        val surface = fromHsl(bgHue, bgSat, 0.15f)
+        val l = light?.let(::hsl)
+        val fg = fromHsl(l?.get(0) ?: hue, (l?.get(1) ?: 0.12f).coerceAtMost(0.18f), 0.88f)
+        val muted = fromHsl(l?.get(0) ?: hue, 0.1f, 0.55f)
+        // Terminal colors keep their meaning but lean toward the image and match its saturation.
+        val ansiSat = (sat * 1.3f + 0.25f).coerceIn(0.3f, 0.72f)
+        fun ansiHue(base: Float) = base + ((hue - base + 540f) % 360f - 180f) * 0.15f
+        val red = fromHsl(ansiHue(355f), ansiSat, 0.66f)
+        val green = fromHsl(ansiHue(120f), ansiSat * 0.8f, 0.62f)
+        val yellow = fromHsl(ansiHue(42f), ansiSat, 0.68f)
+        val blue = fromHsl(ansiHue(215f), ansiSat, 0.68f)
+        val magenta = fromHsl(ansiHue(295f), ansiSat * 0.85f, 0.72f)
+        val cyan = fromHsl(ansiHue(180f), ansiSat * 0.85f, 0.64f)
+        val gradient = listOfNotNull(accent2, accent, third ?: fromHsl(hue - 24f, accentSat(sat), 0.56f)).distinct()
+        return build(name, bg, surface, fg, muted, accent, accent2, red, green, yellow, blue, magenta, cyan, gradient)
     }
+
+    fun fromColors(primary: Int, secondary: Int?, tertiary: Int?): ForgePalette = fromTones(primary, secondary, tertiary)
+
+    /** The actual wallpaper image, when the phone lets us read it. */
+    fun wallpaperBitmap(context: Context): android.graphics.Bitmap? = try {
+        val wm = WallpaperManager.getInstance(context)
+        @Suppress("MissingPermission")
+        val d = wm.drawable ?: wm.peekDrawable()
+        d?.let { it.toBitmap(128, (128f * it.intrinsicHeight.coerceAtLeast(1) / it.intrinsicWidth.coerceAtLeast(1)).toInt().coerceIn(32, 512)) }
+    } catch (e: Throwable) {
+        null
+    }
+
+    private var cachedId = -2
+
+    fun clearWallpaperCache() = synchronized(this) { cachedId = -2; cached = null }
+    private var cached: ForgePalette? = null
 
     /**
-     * Colors from the wallpaper. Some phones (Samsung with live/video/theme wallpapers) don't
-     * share WallpaperColors, so fall back to the system's own wallpaper-derived palette (Android 12+).
+     * Colors from the wallpaper, best source first: the wallpaper image itself, then the colors
+     * Android shares, then (last resort) the system's palette.
      */
-    fun fromWallpaper(context: Context): ForgePalette? {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
-            try {
-                val wm = WallpaperManager.getInstance(context)
-                val c = wm.getWallpaperColors(WallpaperManager.FLAG_SYSTEM) ?: wm.getWallpaperColors(WallpaperManager.FLAG_LOCK)
-                if (c != null) return fromColors(c.primaryColor.toArgb(), c.secondaryColor?.toArgb(), c.tertiaryColor?.toArgb())
-            } catch (_: Exception) {
+    fun fromWallpaper(context: Context, allowSystemPalette: Boolean = true): ForgePalette? {
+        val wm = WallpaperManager.getInstance(context)
+        val id = try { wm.getWallpaperId(WallpaperManager.FLAG_SYSTEM) } catch (e: Throwable) { -1 }
+        synchronized(this) { if (id >= 0 && id == cachedId) cached?.let { return it } }
+        val fromImage = wallpaperBitmap(context)?.let { fromBitmap(it, "From wallpaper") }
+        if (fromImage != null) {
+            synchronized(this) {
+                cachedId = id
+                cached = fromImage
             }
+            return fromImage
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            try {
-                val a1 = context.getColor(android.R.color.system_accent1_400)
-                val a2 = context.getColor(android.R.color.system_accent2_400)
-                val a3 = context.getColor(android.R.color.system_accent3_400)
-                return fromColors(a1, a2, a3)
-            } catch (_: Exception) {
-            }
-        }
-        return null
+        val result = (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+                try {
+                    val c = wm.getWallpaperColors(WallpaperManager.FLAG_SYSTEM) ?: wm.getWallpaperColors(WallpaperManager.FLAG_LOCK)
+                    c?.let { fromColors(it.primaryColor.toArgb(), it.secondaryColor?.toArgb(), it.tertiaryColor?.toArgb()) }
+                } catch (_: Exception) {
+                    null
+                }
+            } else {
+                null
+            })
+            ?: (if (allowSystemPalette && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                try {
+                    fromColors(
+                        context.getColor(android.R.color.system_accent1_400),
+                        context.getColor(android.R.color.system_accent2_400),
+                        context.getColor(android.R.color.system_accent3_400),
+                    )
+                } catch (_: Exception) {
+                    null
+                }
+            } else {
+                null
+            })
+        return result
     }
 
-    /** Palette from any image: finds the strongest distinct hues (like ThemeForge's wallpaper mode). */
+    /** True when we can read the real wallpaper image (best results). */
+    fun canReadWallpaper(context: Context): Boolean = wallpaperBitmap(context) != null
+
+    /** Palette from any image: its strongest distinct hues, plus its own shadow and highlight tones. */
     fun fromBitmap(bitmap: android.graphics.Bitmap, name: String = "From image"): ForgePalette {
         val small = android.graphics.Bitmap.createScaledBitmap(bitmap, 64, 64, true)
-        val buckets = 24
+        val buckets = 36
         val weight = FloatArray(buckets)
         val sumR = FloatArray(buckets)
         val sumG = FloatArray(buckets)
         val sumB = FloatArray(buckets)
-        var avgR = 0f
-        var avgG = 0f
-        var avgB = 0f
+        val px = IntArray(small.width * small.height)
+        small.getPixels(px, 0, small.width, 0, 0, small.width, small.height)
         val hsl = FloatArray(3)
-        for (y in 0 until small.height) for (x in 0 until small.width) {
-            val px = small.getPixel(x, y)
-            val r = android.graphics.Color.red(px)
-            val g = android.graphics.Color.green(px)
-            val b = android.graphics.Color.blue(px)
-            avgR += r; avgG += g; avgB += b
+        val lum = FloatArray(px.size)
+        var satSum = 0f
+        for ((k, c) in px.withIndex()) {
+            val r = android.graphics.Color.red(c)
+            val g = android.graphics.Color.green(c)
+            val b = android.graphics.Color.blue(c)
             ColorUtils.RGBToHSL(r, g, b, hsl)
-            if (hsl[1] < 0.18f || hsl[2] < 0.12f || hsl[2] > 0.92f) continue
+            lum[k] = hsl[2]
+            satSum += hsl[1]
+            if (hsl[1] < 0.06f || hsl[2] < 0.06f || hsl[2] > 0.95f) continue
             val i = ((hsl[0] / 360f) * buckets).toInt().coerceIn(0, buckets - 1)
-            val w = hsl[1] * (1f - kotlin.math.abs(hsl[2] - 0.5f))
+            // Favour colourful mid-tones, but let large muted areas still count.
+            val w = (hsl[1] * hsl[1] + 0.02f) * (1f - kotlin.math.abs(hsl[2] - 0.5f) * 1.4f).coerceAtLeast(0.05f)
             weight[i] += w
             sumR[i] += r * w; sumG[i] += g * w; sumB[i] += b * w
         }
-        val n = (small.width * small.height).toFloat()
-        val avg = android.graphics.Color.rgb((avgR / n).toInt(), (avgG / n).toInt(), (avgB / n).toInt())
+        fun avgOf(sel: (Float) -> Boolean): Int? {
+            var r = 0L; var g = 0L; var b = 0L; var n = 0
+            for ((k, c) in px.withIndex()) if (sel(lum[k])) {
+                r += android.graphics.Color.red(c); g += android.graphics.Color.green(c); b += android.graphics.Color.blue(c); n++
+            }
+            return if (n == 0) null else android.graphics.Color.rgb((r / n).toInt(), (g / n).toInt(), (b / n).toInt())
+        }
+        val sorted = lum.sortedArray()
+        val darkCut = sorted[(sorted.size * 0.3f).toInt()]
+        val lightCut = sorted[(sorted.size * 0.85f).toInt().coerceAtMost(sorted.size - 1)]
+        val dark = avgOf { it <= darkCut }
+        val light = avgOf { it >= lightCut }
         fun colorOf(i: Int) = android.graphics.Color.rgb((sumR[i] / weight[i]).toInt(), (sumG[i] / weight[i]).toInt(), (sumB[i] / weight[i]).toInt())
         val order = (0 until buckets).filter { weight[it] > 0f }.sortedByDescending { weight[it] }
         val picks = ArrayList<Int>()
@@ -185,13 +240,13 @@ object Palettes {
             if (picks.size == 3) break
         }
         if (small !== bitmap) small.recycle()
-        val primary = picks.getOrNull(0)?.let(::colorOf) ?: avg
-        return fromColors(primary, picks.getOrNull(1)?.let(::colorOf), picks.getOrNull(2)?.let(::colorOf)).copy(name = name)
+        val primary = picks.getOrNull(0)?.let(::colorOf) ?: (avgOf { true } ?: 0xFF607080.toInt())
+        return fromTones(primary, picks.getOrNull(1)?.let(::colorOf), picks.getOrNull(2)?.let(::colorOf), dark, light, name)
     }
 
     /** The palette the whole launcher (and the island) draws with right now. */
     fun resolve(context: Context, s: LauncherSettings): ForgePalette = when (s.paletteSource) {
-        PaletteSource.WALLPAPER -> fromWallpaper(context) ?: default
+        PaletteSource.WALLPAPER -> fromWallpaper(context, allowSystemPalette = false) ?: default
         PaletteSource.PRESET -> presets.firstOrNull { it.name == s.palettePreset } ?: default
         PaletteSource.CUSTOM -> s.customPalettes.firstOrNull { it.name == s.customPaletteName }
             ?: s.customPalettes.firstOrNull() ?: default

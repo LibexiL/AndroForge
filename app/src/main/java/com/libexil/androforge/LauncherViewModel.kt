@@ -389,10 +389,40 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     }
 
     /** One tap: theme everything (palette, accent, dock, island, bar) from the current wallpaper. */
+    private var pendingWallpaperMatch: Boolean? = null
+
+    /** Called when the launcher comes back to the front: finishes a match that was waiting on access. */
+    fun resumeWallpaperMatch() {
+        val save = pendingWallpaperMatch ?: return
+        pendingWallpaperMatch = null
+        com.libexil.androforge.data.Palettes.clearWallpaperCache()
+        if (com.libexil.androforge.data.Palettes.canReadWallpaper(app)) matchWallpaper(save)
+        else toast("Still can't read the wallpaper \u2014 turn on \u201cAllow access to manage all files\u201d for AndroForge")
+    }
+
     fun matchWallpaper(saveCopy: Boolean = false) {
-        val p = com.libexil.androforge.data.Palettes.fromWallpaper(app)
+        com.libexil.androforge.data.Palettes.clearWallpaperCache()
+        if (!com.libexil.androforge.data.Palettes.canReadWallpaper(app) && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R &&
+            !android.os.Environment.isExternalStorageManager()
+        ) {
+            // Android only hands out the wallpaper image to apps with file access.
+            try {
+                app.startActivity(
+                    android.content.Intent(
+                        android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                        android.net.Uri.parse("package:" + app.packageName),
+                    ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+                pendingWallpaperMatch = saveCopy
+                toast("Turn on \u201cAllow access\u201d so AndroForge can read your wallpaper, then come back")
+                return
+            } catch (_: Exception) {
+                // No such screen on this phone: fall through to what Android shares.
+            }
+        }
+        val p = com.libexil.androforge.data.Palettes.fromWallpaper(app, allowSystemPalette = false)
         if (p == null) {
-            toast("Your phone isn't sharing the wallpaper's colors \u2014 use \u201cFrom an image\u201d and pick your wallpaper photo")
+            toast("Your phone isn't sharing the wallpaper \u2014 use \u201cFrom an image\u201d and pick your wallpaper photo")
             return
         }
         updateSettings {

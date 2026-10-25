@@ -158,6 +158,7 @@ class MainActivity : ComponentActivity(), LauncherHost {
     override fun onResume() {
         super.onResume()
         vm.maybeAutoCheck()
+        vm.resumeWallpaperMatch()
         // Coming back from a settings screen may have changed access.
         PermissionBus.changed()
         com.libexil.androforge.live.SystemOverride.apply(this, vm.state.value.settings)
