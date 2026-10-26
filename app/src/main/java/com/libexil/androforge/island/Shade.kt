@@ -363,7 +363,10 @@ private fun ShadeTileView(t: ShadeTile, s: LauncherSettings, pal: Pal, hl: Color
             ShadeTile.LOCK -> if (Build.VERSION.SDK_INT >= 28) actions.global(AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN)
             ShadeTile.POWER -> actions.global(AccessibilityService.GLOBAL_ACTION_POWER_DIALOG)
             ShadeTile.SETTINGS -> actions.start(Intent(Settings.ACTION_SETTINGS))
-            ShadeTile.ANDROID -> actions.global(AccessibilityService.GLOBAL_ACTION_QUICK_SETTINGS)
+            ShadeTile.ANDROID -> {
+                com.libexil.androforge.SystemActions.allowSystemShade()
+                actions.global(AccessibilityService.GLOBAL_ACTION_QUICK_SETTINGS)
+            }
         }
     }
     val onLong: () -> Unit = {

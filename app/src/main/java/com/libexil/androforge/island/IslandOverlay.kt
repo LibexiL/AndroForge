@@ -132,6 +132,7 @@ class IslandOverlay(private val service: AccessibilityService) {
             if (settings.shadeMode == com.libexil.androforge.data.ShadeMode.FORGE && !locked) {
                 geo.shadeOpen.value = true
             } else {
+                com.libexil.androforge.SystemActions.allowSystemShade()
                 service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_NOTIFICATIONS)
             }
         }
@@ -166,6 +167,7 @@ class IslandOverlay(private val service: AccessibilityService) {
 
     fun stop() {
         if (active === geo) active = null
+        removeCatcher()
         removeShade()
         screenReceiver?.let { runCatching { service.unregisterReceiver(it) } }
         screenReceiver = null
@@ -215,12 +217,15 @@ class IslandOverlay(private val service: AccessibilityService) {
             BarMode.OFF -> {
                 removeIsland()
                 removeBar()
+                removeCatcher()
             }
             BarMode.ISLAND -> {
                 removeBar()
+                if (catchesTopEdge()) ensureCatcher() else removeCatcher()
                 ensureIsland()
             }
             BarMode.ISLAND_BAR -> {
+                removeCatcher()
                 ensureBar()
                 ensureIsland() // added after the bar so it sits on top
             }
@@ -232,6 +237,79 @@ class IslandOverlay(private val service: AccessibilityService) {
         barView?.let { v ->
             v.visibility = if (hide) View.GONE else View.VISIBLE
             runCatching { wm.updateViewLayout(v, barParams()) }
+        }
+        catcher?.let { v ->
+            v.visibility = if (hide) View.GONE else View.VISIBLE
+            runCatching { wm.updateViewLayout(v, catcherParams()) }
+        }
+    }
+
+    // ── top-edge catcher: an invisible strip over the status bar so pulling down opens
+    // AndroForge's shade and Android's never sees the swipe.
+    private var catcher: View? = null
+
+    private fun catchesTopEdge() = settings.shadeMode == com.libexil.androforge.data.ShadeMode.FORGE && settings.replaceSystemShade
+
+    private fun catcherParams() = baseParams(WindowManager.LayoutParams.MATCH_PARENT, geo.statusBarPx.intValue, touchable = true).apply {
+        gravity = Gravity.TOP
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    private fun ensureCatcher() {
+        if (catcher != null) return
+        val v = View(service)
+        var downY = 0f
+        var fired = false
+        v.setOnTouchListener { _, e ->
+            when (e.actionMasked) {
+                android.view.MotionEvent.ACTION_DOWN -> {
+                    downY = e.rawY
+                    fired = false
+                }
+                android.view.MotionEvent.ACTION_MOVE -> if (!fired && e.rawY - downY > 12 * service.resources.displayMetrics.density) {
+                    fired = true
+                    geo.openShade()
+                }
+                android.view.MotionEvent.ACTION_UP -> if (!fired && e.eventTime - e.downTime < 250) geo.collapseTick.intValue++
+            }
+            true
+        }
+        try {
+            wm.addView(v, catcherParams())
+            catcher = v
+            // Keep the island above the strip.
+            islandRoot?.let { r ->
+                runCatching { wm.removeView(r) }
+                islandRoot = null
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("IslandOverlay", "Couldn't add top-edge catcher", e)
+        }
+    }
+
+    private var lastSwap = 0L
+
+    private fun removeCatcher() {
+        catcher?.let { runCatching { wm.removeView(it) } }
+        catcher = null
+    }
+
+    /** Android's shade opened by itself (e.g. a swipe that started above our windows): swap it for ours. */
+    fun onSystemShadeOpened() {
+        if (!catchesTopEdge()) return
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now < com.libexil.androforge.SystemActions.systemShadeAllowedUntil) {
+            // You opened Android's shade on purpose: leave it alone while you use it.
+            com.libexil.androforge.SystemActions.systemShadeAllowedUntil = now + 4000
+            return
+        }
+        if (now - lastSwap < 1500) return
+        lastSwap = now
+        val locked = service.getSystemService(android.app.KeyguardManager::class.java)?.isKeyguardLocked == true
+        if (locked) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_DISMISS_NOTIFICATION_SHADE)
+            geo.shadeOpen.value = true
         }
     }
 
@@ -330,7 +408,8 @@ class IslandOverlay(private val service: AccessibilityService) {
         } catch (e: Exception) {
             android.util.Log.w("IslandOverlay", "Couldn't open shade", e)
             geo.shadeOpen.value = false
-            service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_NOTIFICATIONS)
+            com.libexil.androforge.SystemActions.allowSystemShade()
+                service.performGlobalAction(AccessibilityService.GLOBAL_ACTION_NOTIFICATIONS)
         }
     }
 

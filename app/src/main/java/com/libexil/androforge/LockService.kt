@@ -93,7 +93,15 @@ class LockService : AccessibilityService() {
         instance = null
     }
 
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) = Unit
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        val e = event ?: return
+        if (e.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || e.packageName != "com.android.systemui") return
+        // SystemUI also shows the volume panel, power menu, recents... only react to the shade.
+        val words = (e.text.joinToString(" ") + " " + (e.contentDescription ?: "") + " " + (e.className ?: "")).lowercase()
+        val isShade = listOf("notification shade", "quick settings", "quick panel", "notification panel", "notificationshade", "notifications", "panel").any { it in words } &&
+            listOf("volume", "power", "recent", "screenshot", "keyguard", "lock screen").none { it in words }
+        if (isShade) island?.onSystemShadeOpened()
+    }
     override fun onInterrupt() = Unit
 
     companion object {

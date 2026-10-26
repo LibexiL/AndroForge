@@ -660,6 +660,13 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                         if (s.barMode != BarMode.ISLAND_BAR) {
                             item { Hint("Tip: with \u201cIsland + custom bar\u201d you can pull down from anywhere along the top.") }
                         }
+                        item {
+                            SwitchRow(
+                                "Block Android's pull-down",
+                                s.replaceSystemShade,
+                                "Catches swipes along the top so only AndroForge's shade opens. If Android's still slips through, it's closed and swapped for this one (Android 12+).",
+                            ) { v -> set { it.copy(replaceSystemShade = v) } }
+                        }
                         item { Choice("Style", com.libexil.androforge.data.ShadeStyle.entries, s.shadeStyle, { it.label }) { v -> set { it.copy(shadeStyle = v) } } }
                         if (s.shadeStyle != com.libexil.androforge.data.ShadeStyle.CLEAR) {
                             item { FloatSlider("Opacity", s.shadeOpacity, 0.2f..1f, { "${(it * 100).roundToInt()}%" }) { v -> set { it.copy(shadeOpacity = v) } } }

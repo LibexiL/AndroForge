@@ -275,6 +275,8 @@ data class LauncherSettings(
     val shadeMedia: Boolean = true,
     val shadeBrightness: Boolean = true,
     val shadeHighlight: ColorRole = ColorRole.ACCENT,
+    /** With AndroForge's shade: close Android's pull-down when it opens and show ours instead. */
+    val replaceSystemShade: Boolean = true,
     // Override Android's own bar (needs WRITE_SECURE_SETTINGS via adb)
     val hideSystemPopups: Boolean = false,
     val hideSystemIcons: Boolean = false,
