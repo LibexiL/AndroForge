@@ -25,6 +25,7 @@ class LauncherApp : Application() {
         MediaHub.init(this)
         AudioViz.init(this)
         com.libexil.androforge.live.SystemOverride.apply(this, store.state.value.settings)
+        com.libexil.androforge.live.SystemOverride.watch(this) { store.state.value.settings }
         com.libexil.androforge.data.Palettes.checkWallpaperChanged(this)
         @Suppress("DEPRECATION")
         androidx.core.content.ContextCompat.registerReceiver(

@@ -579,6 +579,15 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                             "Only the island shows new notifications. Turning this off brings Android's banners back.",
                         ) { v -> if (overrideOk) set { it.copy(hideSystemPopups = v) } else vm.toast("Run the setup command first") }
                     }
+                    if (s.hideSystemPopups && overrideOk) {
+                        item {
+                            val leaking = remember(permissionTick) { com.libexil.androforge.live.SystemOverride.popupsLeaking(context, s) }
+                            Hint(
+                                if (leaking) "Android's pop-ups are switched on right now \u2014 AndroForge is turning them back off."
+                                else "Android's pop-ups are blocked. AndroForge re-blocks them if your phone switches them back on. Calls and alarms can still show full screen.",
+                            )
+                        }
+                    }
                     item {
                         SwitchRow(
                             "Hide Android's status bar icons",

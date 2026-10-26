@@ -264,7 +264,14 @@ class MainActivity : ComponentActivity(), LauncherHost {
         // Coming back from a settings screen may have changed access.
         PermissionBus.changed()
         com.libexil.androforge.live.SystemOverride.apply(this, vm.state.value.settings)
+        val st = vm.state.value.settings
+        if ((st.hideSystemPopups || st.hideSystemIcons) && !com.libexil.androforge.live.SystemOverride.canWrite(this) && !warnedOverride) {
+            warnedOverride = true
+            Toast.makeText(this, "AndroForge lost permission to hide Android's pop-ups \u2014 run the adb command in Settings again", Toast.LENGTH_LONG).show()
+        }
     }
+
+    private var warnedOverride = false
 
     override fun onStop() {
         super.onStop()

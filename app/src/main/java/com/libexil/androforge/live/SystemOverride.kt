@@ -30,6 +30,41 @@ object SystemOverride {
     fun canWrite(context: Context): Boolean =
         context.checkSelfPermission(android.Manifest.permission.WRITE_SECURE_SETTINGS) == PackageManager.PERMISSION_GRANTED
 
+    private var watching = false
+
+    /**
+     * Re-applies the moment anything (Samsung, a settings screen, a reboot) flips Android's
+     * pop-ups or icons back on, instead of waiting for the launcher to open again.
+     */
+    fun watch(context: Context, settings: () -> LauncherSettings) {
+        if (watching) return
+        watching = true
+        val app = context.applicationContext
+        val observer = object : android.database.ContentObserver(android.os.Handler(android.os.Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean) {
+                val s = settings()
+                if (s.hideSystemPopups || s.hideSystemIcons) apply(app, s)
+            }
+        }
+        runCatching { app.contentResolver.registerContentObserver(Settings.Global.getUriFor(HEADS_UP), false, observer) }
+        runCatching { app.contentResolver.registerContentObserver(Settings.Secure.getUriFor(ICON_BLACKLIST), false, observer) }
+        // Also re-check whenever the screen turns on or the phone finishes booting.
+        val receiver = object : android.content.BroadcastReceiver() {
+            override fun onReceive(c: Context, i: android.content.Intent) = apply(app, settings())
+        }
+        androidx.core.content.ContextCompat.registerReceiver(
+            app, receiver,
+            android.content.IntentFilter().apply {
+                addAction(android.content.Intent.ACTION_SCREEN_ON)
+                addAction(android.content.Intent.ACTION_USER_PRESENT)
+            },
+            androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
+    }
+
+    /** True when pop-ups should be hidden but Android's switch is on anyway. */
+    fun popupsLeaking(context: Context, s: LauncherSettings): Boolean = s.hideSystemPopups && headsUpOn(context)
+
     fun headsUpOn(context: Context): Boolean =
         Settings.Global.getInt(context.contentResolver, HEADS_UP, 1) != 0
 
