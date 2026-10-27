@@ -203,7 +203,7 @@ object SystemMonitor {
 
     /** Bluetooth headset battery, when the phone exposes it (needs Nearby devices on Android 12+). */
     @SuppressLint("MissingPermission", "DiscouragedPrivateApi")
-    private fun bluetoothBattery(d: AudioDeviceInfo): Int? {
+    fun bluetoothBattery(d: AudioDeviceInfo): Int? {
         if (Build.VERSION.SDK_INT < 28) return null
         if (d.type != AudioDeviceInfo.TYPE_BLUETOOTH_A2DP && !(Build.VERSION.SDK_INT >= 31 && d.type == AudioDeviceInfo.TYPE_BLE_HEADSET)) return null
         if (Build.VERSION.SDK_INT >= 31 &&

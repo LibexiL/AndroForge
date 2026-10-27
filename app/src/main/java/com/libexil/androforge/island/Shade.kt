@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -217,46 +218,70 @@ fun ShadeView(s: LauncherSettings, pal: Pal, actions: ShadeActions, modifier: Mo
     val hlBrush = Brush.linearGradient(pal.stops(s.shadeHighlight))
     val now = rememberNow(false)
 
+    val row = s.shadeLayout == com.libexil.androforge.data.ShadeLayout.ROW
+    val maxH = (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * 0.86f).dp
     Column(
         modifier
             .fillMaxWidth()
             .clip(shape)
             .then(panelBg)
-            .padding(16.dp),
+            .then(if (preview) Modifier else Modifier.heightIn(max = maxH).verticalScroll(rememberScrollState()))
+            .padding(horizontal = 14.dp, vertical = 12.dp),
     ) {
-        // Header
+        // Header: one compact line.
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(SimpleDateFormat("h:mm", Locale.getDefault()).format(Date(now)), color = fg, fontSize = 30.sp, fontWeight = FontWeight.Light)
-                Text(SimpleDateFormat("EEEE, d MMMM", Locale.getDefault()).format(Date(now)), color = muted, fontSize = 13.sp)
-            }
+            Text(SimpleDateFormat("h:mm", Locale.getDefault()).format(Date(now)), color = fg, fontSize = 22.sp, fontWeight = FontWeight.Medium)
+            Spacer(Modifier.width(8.dp))
+            Text(SimpleDateFormat("EEE, d MMM", Locale.getDefault()).format(Date(now)), color = muted, fontSize = 13.sp, modifier = Modifier.weight(1f))
             val b by SystemMonitor.battery.collectAsState()
-            Text("${b.level}%" + if (b.charging) " ⚡" else "", color = fg, fontSize = 14.sp)
-            Spacer(Modifier.width(10.dp))
+            Text("${b.level}%" + if (b.charging) " \u26a1" else "", color = fg, fontSize = 13.sp)
+            Spacer(Modifier.width(8.dp))
             Box(
-                Modifier.size(36.dp).clip(CircleShape).background(fg.copy(alpha = 0.1f)).clickable { actions.start(Intent(Settings.ACTION_SETTINGS)) },
+                Modifier.size(32.dp).clip(CircleShape).background(fg.copy(alpha = 0.1f)).clickable { if (!preview) actions.start(Intent(Settings.ACTION_SETTINGS)) },
                 contentAlignment = Alignment.Center,
-            ) { Icon(Icons.Default.Settings, "Settings", tint = fg, modifier = Modifier.size(18.dp)) }
+            ) { Icon(Icons.Default.Settings, "Settings", tint = fg, modifier = Modifier.size(16.dp)) }
         }
-        Spacer(Modifier.height(14.dp))
+        Spacer(Modifier.height(10.dp))
 
-        // Tiles
-        val pill = s.shadeTileShape == TileShape.PILL
-        val cols = if (pill) (s.shadeColumns / 2).coerceAtLeast(2) else s.shadeColumns.coerceIn(3, 6)
-        val tiles = s.shadeTiles
-        tiles.chunked(cols).forEach { row ->
-            Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                row.forEach { t ->
-                    Box(Modifier.weight(1f)) { ShadeTileView(t, s, pal, hl, hlBrush, actions, pill, preview) }
+        if (row) {
+            // Wi-Fi and Bluetooth get big buttons that show what you're connected to.
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ConnectionCard(ShadeTile.WIFI, pal, hlBrush, actions, preview, Modifier.weight(1f))
+                ConnectionCard(ShadeTile.BLUETOOTH, pal, hlBrush, actions, preview, Modifier.weight(1f))
+            }
+            val rest = s.shadeTiles.filter { it != ShadeTile.WIFI && it != ShadeTile.BLUETOOTH }
+            if (rest.isNotEmpty()) {
+                Spacer(Modifier.height(10.dp))
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    rest.forEach { t -> Box(Modifier.width(54.dp)) { ShadeTileView(t, s, pal, hl, hlBrush, actions, pill = false, preview = preview, small = true) } }
                 }
-                repeat(cols - row.size) { Spacer(Modifier.weight(1f)) }
+            }
+        } else {
+            val pill = s.shadeTileShape == TileShape.PILL
+            val cols = if (pill) (s.shadeColumns / 2).coerceAtLeast(2) else s.shadeColumns.coerceIn(3, 6)
+            s.shadeTiles.chunked(cols).forEach { r ->
+                Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    r.forEach { t ->
+                        Box(Modifier.weight(1f)) { ShadeTileView(t, s, pal, hl, hlBrush, actions, pill, preview) }
+                    }
+                    repeat(cols - r.size) { Spacer(Modifier.weight(1f)) }
+                }
             }
         }
 
-        // Brightness
+        // Brightness & volume
         if (s.shadeBrightness) {
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(10.dp))
             BrightnessRow(pal, hl, actions, preview)
+        }
+        if (s.shadeVolume) {
+            Spacer(Modifier.height(6.dp))
+            VolumeRow(pal, hl, actions, preview)
         }
 
         // Media
@@ -267,29 +292,29 @@ fun ShadeView(s: LauncherSettings, pal: Pal, actions: ShadeActions, modifier: Mo
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(20.dp))
+                        .clip(RoundedCornerShape(18.dp))
                         .background(fg.copy(alpha = 0.07f))
                         .clickable { MediaHub.openPlayer(context); actions.close() }
-                        .padding(10.dp),
+                        .padding(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    AlbumArt(media.art, com.libexil.androforge.data.ArtStyle.SQUARE, media.playing, pal, 46.dp)
+                    AlbumArt(media.art, com.libexil.androforge.data.ArtStyle.SQUARE, media.playing, pal, 40.dp)
                     Spacer(Modifier.width(10.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(media.title, color = fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(media.artist, color = muted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(media.title, color = fg, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(media.artist, color = muted, fontSize = 11.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                     listOf(Transport.PREV to { MediaHub.previous() }, (if (media.playing) Transport.PAUSE else Transport.PLAY) to { MediaHub.playPause() }, Transport.NEXT to { MediaHub.next() })
                         .forEach { (k, f) ->
-                            Box(Modifier.size(38.dp).clip(CircleShape).clickable { f() }, contentAlignment = Alignment.Center) { TransportIcon(k, fg, 20.dp) }
+                            Box(Modifier.size(34.dp).clip(CircleShape).clickable { f() }, contentAlignment = Alignment.Center) { TransportIcon(k, fg, 18.dp) }
                         }
                 }
             }
         }
 
-        // Notifications
+        // Notifications (the whole panel scrolls, so the list can be as long as it needs)
         val entries by NotifHub.entries.collectAsState()
-        val list = entries.take(if (preview) 2 else 30)
+        val list = entries.take(if (preview) 2 else 40)
         Spacer(Modifier.height(12.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("NOTIFICATIONS", color = hl, fontSize = 10.5.sp, letterSpacing = 1.6.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
@@ -303,19 +328,172 @@ fun ShadeView(s: LauncherSettings, pal: Pal, actions: ShadeActions, modifier: Mo
         if (list.isEmpty()) {
             Text("No notifications", color = muted, fontSize = 13.sp, modifier = Modifier.padding(vertical = 10.dp))
         } else {
-            Column(Modifier.heightIn(max = if (preview) 140.dp else 380.dp).verticalScroll(rememberScrollState())) {
-                list.forEach { e -> ShadeNotification(e, pal, actions) }
+            list.forEach { e -> ShadeNotification(e, pal, actions) }
+        }
+        // Handle: drag up or tap to close.
+        Box(
+            Modifier
+                .align(Alignment.CenterHorizontally)
+                .padding(top = 6.dp)
+                .size(width = 80.dp, height = 18.dp)
+                .clickable(interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, indication = null) { actions.close() }
+                .pointerInput(Unit) {
+                    var total = 0f
+                    detectVerticalDragGestures(onDragStart = { total = 0f }, onVerticalDrag = { _, d -> total += d }, onDragEnd = { if (total < -30f) actions.close() })
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(Modifier.size(width = 40.dp, height = 4.dp).clip(RoundedCornerShape(50)).background(fg.copy(alpha = 0.3f)))
+        }
+    }
+}
+
+/** Wi-Fi / Bluetooth button: icon, name of what you're connected to, signal or battery. */
+@Composable
+private fun ConnectionCard(t: ShadeTile, pal: Pal, hlBrush: Brush, actions: ShadeActions, preview: Boolean, modifier: Modifier) {
+    val context = LocalContext.current
+    val net by SystemMonitor.net.collectAsState()
+    val now = rememberNow(false)
+    val info = remember(t, net, now) { if (t == ShadeTile.WIFI) wifiInfo(context, net) else bluetoothInfo(context) }
+    val fg = pal.foreground
+    val on = info.on
+    Row(
+        modifier
+            .height(60.dp)
+            .clip(RoundedCornerShape(20.dp))
+            .background(if (on) hlBrush else Brush.linearGradient(listOf(fg.copy(alpha = 0.09f), fg.copy(alpha = 0.09f))))
+            .clickable {
+                if (preview) return@clickable
+                if (t == ShadeTile.WIFI) {
+                    actions.start(if (Build.VERSION.SDK_INT >= 29) Intent(Settings.Panel.ACTION_WIFI) else Intent(Settings.ACTION_WIFI_SETTINGS))
+                } else if (!on && bluetoothAvailable(context)) {
+                    actions.start(Intent(android.bluetooth.BluetoothAdapter.ACTION_REQUEST_ENABLE))
+                } else {
+                    actions.start(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
+                }
+            }
+            .padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        val tint = if (on) Color.White else fg
+        Box(
+            Modifier.size(34.dp).clip(CircleShape).background(if (on) Color.White.copy(alpha = 0.22f) else fg.copy(alpha = 0.1f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (t == ShadeTile.WIFI) WifiBars(info.level, tint, Modifier.size(18.dp)) else TileGlyph(ShadeTile.BLUETOOTH, tint, Modifier.size(18.dp))
+        }
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(info.title, color = tint, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(info.subtitle, color = tint.copy(alpha = 0.75f), fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        Text("\u203a", color = tint.copy(alpha = 0.7f), fontSize = 20.sp)
+    }
+}
+
+private class ConnInfo(val on: Boolean, val title: String, val subtitle: String, val level: Int = 0)
+
+@Suppress("DEPRECATION")
+private fun wifiInfo(context: Context, net: NetKind): ConnInfo {
+    val wm = context.applicationContext.getSystemService(android.net.wifi.WifiManager::class.java)
+    val enabled = runCatching { wm?.isWifiEnabled == true }.getOrDefault(false)
+    if (!enabled) return ConnInfo(false, "Wi-Fi", "Off")
+    if (net != NetKind.WIFI) return ConnInfo(true, "Wi-Fi", "On \u00b7 not connected", 0)
+    val ci = runCatching { wm?.connectionInfo }.getOrNull()
+    val ssid = ci?.ssid?.trim('"')?.takeIf { it.isNotBlank() && it != "<unknown ssid>" && it != "0x" }
+    val level = ci?.rssi?.let { rssi ->
+        if (Build.VERSION.SDK_INT >= 30) (wm?.calculateSignalLevel(rssi) ?: 0) * 4 / ((wm?.maxSignalLevel ?: 4).coerceAtLeast(1))
+        else android.net.wifi.WifiManager.calculateSignalLevel(rssi, 5)
+    } ?: 4
+    val strength = when (level) {
+        4 -> "Excellent"
+        3 -> "Good"
+        2 -> "Fair"
+        else -> "Weak"
+    }
+    return ConnInfo(true, ssid ?: "Connected", strength + " signal", level)
+}
+
+private fun bluetoothAvailable(context: Context): Boolean =
+    Build.VERSION.SDK_INT < 31 ||
+        context.checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+private fun bluetoothInfo(context: Context): ConnInfo {
+    if (!bluetoothAvailable(context)) return ConnInfo(false, "Bluetooth", "Allow Nearby devices in AndroForge")
+    val on = bluetoothOn(context)
+    if (!on) return ConnInfo(false, "Bluetooth", "Off")
+    val audio = context.getSystemService(android.media.AudioManager::class.java)
+    val types = mutableSetOf(android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP, android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO)
+    if (Build.VERSION.SDK_INT >= 31) types += android.media.AudioDeviceInfo.TYPE_BLE_HEADSET
+    val dev = runCatching { audio.getDevices(android.media.AudioManager.GET_DEVICES_OUTPUTS).firstOrNull { it.type in types } }.getOrNull()
+    if (dev == null) return ConnInfo(true, "Bluetooth", "On \u00b7 no device")
+    val name = dev.productName?.toString()?.takeIf { it.isNotBlank() } ?: "Connected"
+    val battery = SystemMonitor.bluetoothBattery(dev)
+    return ConnInfo(true, name, if (battery != null) "Connected \u00b7 $battery%" else "Connected")
+}
+
+@Composable
+private fun WifiBars(level: Int, tint: Color, modifier: Modifier) {
+    Canvas(modifier) {
+        val w = size.width
+        val h = size.height
+        val sw = w * 0.12f
+        for (k in 1..3) {
+            val r = w * 0.17f * k + sw
+            val a = if (level >= k + 1 || level >= 4) 1f else 0.3f
+            drawArc(tint.copy(alpha = a), 225f, 90f, false, Offset(w / 2 - r, h * 0.85f - r), Size(r * 2, r * 2), style = Stroke(sw, cap = StrokeCap.Round))
+        }
+        drawCircle(tint, sw * 0.8f, Offset(w / 2, h * 0.85f))
+    }
+}
+
+@Composable
+private fun VolumeRow(pal: Pal, hl: Color, actions: ShadeActions, preview: Boolean) {
+    val context = LocalContext.current
+    val audio = remember { context.getSystemService(android.media.AudioManager::class.java) }
+    val max = remember { runCatching { audio.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC) }.getOrDefault(15).coerceAtLeast(1) }
+    var level by remember { mutableFloatStateOf(runCatching { audio.getStreamVolume(android.media.AudioManager.STREAM_MUSIC).toFloat() / max }.getOrDefault(0.5f)) }
+    Row(
+        Modifier.fillMaxWidth().height(44.dp).clip(RoundedCornerShape(50)).background(pal.foreground.copy(alpha = 0.07f)).padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier.size(24.dp).clip(CircleShape).clickable {
+                if (!preview) actions.start(if (Build.VERSION.SDK_INT >= 29) Intent(Settings.Panel.ACTION_VOLUME) else Intent(Settings.ACTION_SOUND_SETTINGS))
+            },
+            contentAlignment = Alignment.Center,
+        ) {
+            Canvas(Modifier.size(18.dp)) {
+                val w = size.width
+                val h = size.height
+                val c = pal.foreground
+                val body = Path().apply {
+                    moveTo(w * 0.1f, h * 0.38f); lineTo(w * 0.3f, h * 0.38f); lineTo(w * 0.55f, h * 0.15f)
+                    lineTo(w * 0.55f, h * 0.85f); lineTo(w * 0.3f, h * 0.62f); lineTo(w * 0.1f, h * 0.62f); close()
+                }
+                drawPath(body, c)
+                if (level > 0.01f) drawArc(c, -45f, 90f, false, Offset(w * 0.45f, h * 0.3f), Size(w * 0.3f, h * 0.4f), style = Stroke(w * 0.09f, cap = StrokeCap.Round))
+                if (level > 0.5f) drawArc(c, -45f, 90f, false, Offset(w * 0.4f, h * 0.15f), Size(w * 0.55f, h * 0.7f), style = Stroke(w * 0.09f, cap = StrokeCap.Round))
+                if (level <= 0.01f) drawLine(c, Offset(w * 0.68f, h * 0.36f), Offset(w * 0.95f, h * 0.64f), w * 0.09f, StrokeCap.Round)
             }
         }
-        Box(
-            Modifier.align(Alignment.CenterHorizontally).padding(top = 8.dp).size(width = 40.dp, height = 4.dp).clip(RoundedCornerShape(50)).background(fg.copy(alpha = 0.3f)),
+        Slider(
+            value = level,
+            onValueChange = { v ->
+                level = v
+                if (!preview) runCatching { audio.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, (v * max).roundToIntSafe(), 0) }
+            },
+            colors = SliderDefaults.colors(thumbColor = hl, activeTrackColor = hl, inactiveTrackColor = pal.foreground.copy(alpha = 0.2f)),
+            modifier = Modifier.weight(1f).padding(start = 8.dp),
         )
     }
 }
 
+private fun Float.roundToIntSafe(): Int = kotlin.math.round(this).toInt()
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ShadeTileView(t: ShadeTile, s: LauncherSettings, pal: Pal, hl: Color, hlBrush: Brush, actions: ShadeActions, pill: Boolean, preview: Boolean) {
+private fun ShadeTileView(t: ShadeTile, s: LauncherSettings, pal: Pal, hl: Color, hlBrush: Brush, actions: ShadeActions, pill: Boolean, preview: Boolean, small: Boolean = false) {
     val context = LocalContext.current
     val net by SystemMonitor.net.collectAsState()
     val torch by SystemMonitor.torch.collectAsState()
@@ -401,7 +579,7 @@ private fun ShadeTileView(t: ShadeTile, s: LauncherSettings, pal: Pal, hl: Color
     } else {
         Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
             BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                val d = minOf(maxWidth, 62.dp)
+                val d = minOf(maxWidth, if (small) 48.dp else 62.dp)
                 Box(
                     Modifier
                         .size(d)
@@ -411,7 +589,7 @@ private fun ShadeTileView(t: ShadeTile, s: LauncherSettings, pal: Pal, hl: Color
                     contentAlignment = Alignment.Center,
                 ) { TileGlyph(t, iconTint, Modifier.size(d * 0.4f)) }
             }
-            Text(label, color = pal.muted, fontSize = 11.sp, maxLines = 1, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 4.dp))
+            Text(label, color = pal.muted, fontSize = if (small) 10.sp else 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 4.dp))
         }
     }
 }
@@ -503,7 +681,7 @@ private fun BrightnessRow(pal: Pal, hl: Color, actions: ShadeActions, preview: B
         mutableFloatStateOf(runCatching { Settings.System.getInt(context.contentResolver, Settings.System.SCREEN_BRIGHTNESS) / 255f }.getOrDefault(0.5f))
     }
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(50)).background(pal.foreground.copy(alpha = 0.07f)).padding(horizontal = 12.dp),
+        Modifier.fillMaxWidth().height(44.dp).clip(RoundedCornerShape(50)).background(pal.foreground.copy(alpha = 0.07f)).padding(horizontal = 15.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Canvas(Modifier.size(18.dp)) {
@@ -540,7 +718,7 @@ private fun BrightnessRow(pal: Pal, hl: Color, actions: ShadeActions, preview: B
                 modifier = Modifier
                     .weight(1f)
                     .clickable { actions.start(Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, Uri.parse("package:" + context.packageName))) }
-                    .padding(horizontal = 10.dp, vertical = 14.dp),
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
             )
         }
     }

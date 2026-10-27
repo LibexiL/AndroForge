@@ -149,6 +149,9 @@ enum class ShadeMode(val label: String) { ANDROID("Android's"), FORGE("AndroForg
 enum class ShadeStyle(val label: String) { GLASS("Glass"), SOLID("Solid"), GRADIENT("Gradient"), CLEAR("Clear") }
 
 @Serializable
+enum class ShadeLayout(val label: String) { ROW("Compact row"), GRID("Grid") }
+
+@Serializable
 enum class TileShape(val label: String) { ROUNDED("Rounded"), CIRCLE("Circle"), SQUIRCLE("Squircle"), PILL("Pill") }
 
 @Serializable
@@ -277,6 +280,8 @@ data class LauncherSettings(
     val shadeHighlight: ColorRole = ColorRole.ACCENT,
     /** With AndroForge's shade: close Android's pull-down when it opens and show ours instead. */
     val replaceSystemShade: Boolean = true,
+    val shadeLayout: ShadeLayout = ShadeLayout.ROW,
+    val shadeVolume: Boolean = true,
     // Override Android's own bar (needs WRITE_SECURE_SETTINGS via adb)
     val hideSystemPopups: Boolean = false,
     val hideSystemIcons: Boolean = false,

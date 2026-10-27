@@ -579,6 +579,15 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                             "Only the island shows new notifications. Turning this off brings Android's banners back.",
                         ) { v -> if (overrideOk) set { it.copy(hideSystemPopups = v) } else vm.toast("Run the setup command first") }
                     }
+                    item {
+                        // Live status, to tell "the phone ignores it" apart from "it isn't set".
+                        val headsUp = remember(permissionTick, s.hideSystemPopups) { com.libexil.androforge.live.SystemOverride.headsUpOn(context) }
+                        Hint(
+                            "Status: permission " + (if (overrideOk) "granted" else "missing") +
+                                " \u2022 Android's pop-up switch is " + (if (headsUp) "ON" else "OFF") +
+                                if (s.hideSystemPopups && overrideOk && !headsUp) ". If banners still show, your phone ignores this switch: turn off \u201cPop-up\u201d per app in Android's Settings \u2192 Notifications \u2192 App notifications." else "",
+                        )
+                    }
                     if (s.hideSystemPopups && overrideOk) {
                         item {
                             val leaking = remember(permissionTick) { com.libexil.androforge.live.SystemOverride.popupsLeaking(context, s) }
@@ -677,8 +686,14 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                                 EdRoleSwatches("Active tile color", pal, s.shadeHighlight) { v -> set { it.copy(shadeHighlight = v) } }
                             }
                         }
+                        item { Choice("Layout", com.libexil.androforge.data.ShadeLayout.entries, s.shadeLayout, { it.label }) { v -> set { it.copy(shadeLayout = v) } } }
+                        if (s.shadeLayout == com.libexil.androforge.data.ShadeLayout.ROW) {
+                            item { Hint("Wi-Fi and Bluetooth get big buttons showing what you're connected to; the other tiles sit in one row you can swipe sideways.") }
+                        }
                         item { Choice("Tile shape", com.libexil.androforge.data.TileShape.entries, s.shadeTileShape, { it.label }) { v -> set { it.copy(shadeTileShape = v) } } }
-                        item { IntSlider("Tiles per row", s.shadeColumns, 3..6) { v -> set { it.copy(shadeColumns = v) } } }
+                        if (s.shadeLayout == com.libexil.androforge.data.ShadeLayout.GRID) {
+                            item { IntSlider("Tiles per row", s.shadeColumns, 3..6) { v -> set { it.copy(shadeColumns = v) } } }
+                        }
                         item {
                             Column(Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
                                 Text("Tiles", fontSize = 15.sp)
@@ -698,6 +713,24 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                             }
                         }
                         item { SwitchRow("Brightness slider", s.shadeBrightness) { v -> set { it.copy(shadeBrightness = v) } } }
+                        item { SwitchRow("Volume slider", s.shadeVolume, "Media volume; tap the speaker for all volumes") { v -> set { it.copy(shadeVolume = v) } } }
+                        val fineOk = remember(permissionTick) {
+                            androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                        }
+                        if (s.shadeLayout == com.libexil.androforge.data.ShadeLayout.ROW && !fineOk) {
+                            item {
+                                Banner("Show your Wi-Fi network's name", "Android only tells apps the Wi-Fi name if they have precise location. It's not used for anything else.", "Allow") {
+                                    host.requestPermission(android.Manifest.permission.ACCESS_FINE_LOCATION)
+                                }
+                            }
+                        }
+                        if (s.shadeLayout == com.libexil.androforge.data.ShadeLayout.ROW && !btOk) {
+                            item {
+                                Banner("Show your Bluetooth device", "Allow \u201cNearby devices\u201d so the shade can show what's connected and its battery.", "Allow") {
+                                    host.requestPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
+                                }
+                            }
+                        }
                         item { SwitchRow("Media player", s.shadeMedia) { v -> set { it.copy(shadeMedia = v) } } }
                         if (!android.provider.Settings.System.canWrite(context)) {
                             item {
