@@ -80,6 +80,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     var menu by mutableStateOf<MenuRequest?>(null)
     var openFolderId by mutableStateOf<String?>(null)
     var settingsOpen by mutableStateOf(false)
+    var settingsPage by mutableStateOf<com.libexil.androforge.ui.SettingsPage?>(null)
     var widgetPickerPage by mutableStateOf<Int?>(null)
     var editApp by mutableStateOf<AppKey?>(null)
     var iconPickerFor by mutableStateOf<AppKey?>(null)
@@ -364,6 +365,16 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         s.copy(items = f(s.items), dock = f(s.dock))
     }
 
+    /** Moves [key] to position [index] inside its folder. */
+    fun reorderFolder(folderId: String, key: AppKey, index: Int) = store.update { s ->
+        fun fix(list: List<HomeItem>) = list.map { item ->
+            if (item.id != folderId || item !is FolderItem || key !in item.apps) return@map item
+            val rest = item.apps - key
+            item.copy(apps = rest.toMutableList().apply { add(index.coerceIn(0, rest.size), key) })
+        }
+        s.copy(items = fix(s.items), dock = fix(s.dock))
+    }
+
     fun removeFromFolder(folderId: String, key: AppKey) =
         store.update { LayoutOps.removeSource(it, DragSource.Folder(folderId, key)) }
 
@@ -608,6 +619,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             movingWidgetId != null -> movingWidgetId = null
             hiddenAppsOpen -> hiddenAppsOpen = false
             widgetPickerPage != null -> widgetPickerPage = null
+            settingsOpen && settingsPage != null -> settingsPage = null
             settingsOpen -> settingsOpen = false
             openFolderId != null -> openFolderId = null
             else -> return false

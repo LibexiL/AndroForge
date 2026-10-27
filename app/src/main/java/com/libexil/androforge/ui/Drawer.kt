@@ -44,6 +44,9 @@ import androidx.compose.ui.unit.IntOffset
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.runtime.SideEffect
 import androidx.compose.animation.core.VisibilityThreshold
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -697,7 +700,39 @@ fun FolderOverlay(
     }
     val settings = state.settings
     val accent = LocalAccent.current
-    val hiddenForDrag = drag.moved && drag.source is DragSource.Folder
+    // Dragging an app around inside the card rearranges it; dragging it out puts it on the home screen.
+    var cardRect by remember { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) }
+    var gridRect by remember { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) }
+    var rowHeight by remember { mutableStateOf(1f) }
+    val perRow = 4
+    val src = drag.source as? DragSource.Folder
+    val draggingHere = drag.moved && src != null && src.folderId == folder.id
+    val inside = draggingHere && cardRect.inflate(-8f).contains(drag.position)
+    SideEffect { drag.overFolder = inside }
+    val dropIndex = if (inside && gridRect != androidx.compose.ui.geometry.Rect.Zero) {
+        val col = ((drag.position.x - gridRect.left) / (gridRect.width / perRow)).toInt().coerceIn(0, perRow - 1)
+        val row = ((drag.position.y - gridRect.top) / rowHeight.coerceAtLeast(1f)).toInt().coerceAtLeast(0)
+        (row * perRow + col).coerceIn(0, folder.apps.size - 1)
+    } else {
+        -1
+    }
+    // The layout stays put while you drag (so the gesture isn't interrupted); the spot it'll land on lights up.
+    val shown = folder.apps
+    val dropInside: () -> Boolean = {
+        val s2 = drag.source as? DragSource.Folder
+        val ok = s2 != null && drag.moved && cardRect.inflate(-8f).contains(drag.position)
+        if (ok && s2 != null) {
+            val g = gridRect
+            val col = ((drag.position.x - g.left) / (g.width / perRow)).toInt().coerceIn(0, perRow - 1)
+            val row = ((drag.position.y - g.top) / rowHeight.coerceAtLeast(1f)).toInt().coerceAtLeast(0)
+            vm.reorderFolder(folder.id, s2.app, (row * perRow + col).coerceIn(0, folder.apps.size - 1))
+            vm.menu = null
+            drag.overFolder = false
+            drag.clear()
+        }
+        ok
+    }
+    val hiddenForDrag = drag.moved && drag.source is DragSource.Folder && !inside
     val tint = folder.color?.let { Color(it) } ?: accent
     val motion = LocalMotion.current
     val appear = remember { androidx.compose.animation.core.Animatable(if (motion.enabled) 0f else 1f) }
@@ -715,6 +750,7 @@ fun FolderOverlay(
             modifier = Modifier
                 .padding(24.dp)
                 .widthIn(max = 420.dp)
+                .onGloballyPositioned { cardRect = it.boundsInRoot() }
                 .graphicsLayer {
                     val k = 0.86f + 0.14f * appear.value
                     scaleX = k
@@ -752,26 +788,41 @@ fun FolderOverlay(
                             .padding(horizontal = 12.dp, vertical = 7.dp),
                     )
                 }
-                val perRow = 4
-                folder.apps.chunked(perRow).forEach { row ->
-                    Row(Modifier.fillMaxWidth()) {
-                        row.forEach { key ->
-                            FolderAppCell(
-                                folderId = folder.id,
-                                app = key,
-                                label = labelFor(key, appsById[key.id]?.label),
-                                iconSize = (settings.iconSizeDp - 2).dp,
-                                vm = vm,
-                                drag = drag,
-                                onDragEnd = onDragEnd,
-                                modifier = Modifier.weight(1f),
-                            )
+                Column(Modifier.onGloballyPositioned { gridRect = it.boundsInRoot() }) {
+                    shown.chunked(perRow).forEachIndexed { r, row ->
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .then(if (r == 0) Modifier.onSizeChanged { rowHeight = it.height.toFloat() } else Modifier),
+                        ) {
+                            row.forEach { key ->
+                                androidx.compose.runtime.key(key.id) {
+                                    val isDragged = draggingHere && src?.app == key
+                                val isTarget = inside && dropIndex >= 0 && shown.indexOf(key) == dropIndex && !isDragged
+                                    FolderAppCell(
+                                        folderId = folder.id,
+                                        app = key,
+                                        label = labelFor(key, appsById[key.id]?.label),
+                                        iconSize = (settings.iconSizeDp - 2).dp,
+                                        vm = vm,
+                                        drag = drag,
+                                        onDragEnd = { if (!dropInside()) onDragEnd() },
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .graphicsLayer { alpha = if (isDragged) 0.25f else 1f }
+                                            .then(
+                                                if (isTarget) Modifier.clip(RoundedCornerShape(16.dp)).background(tint.copy(alpha = 0.22f)).border(1.5.dp, tint, RoundedCornerShape(16.dp))
+                                                else Modifier,
+                                            ),
+                                    )
+                                }
+                            }
+                            repeat(perRow - row.size) { Spacer(Modifier.weight(1f)) }
                         }
-                        repeat(perRow - row.size) { Spacer(Modifier.weight(1f)) }
                     }
                 }
                 Text(
-                    "Long-press an app to drag it out",
+                    "Hold and drag to rearrange \u2022 drag outside to take an app out",
                     color = Color.White.copy(alpha = 0.45f),
                     fontSize = 11.sp,
                     modifier = Modifier.padding(top = 10.dp, start = 4.dp),

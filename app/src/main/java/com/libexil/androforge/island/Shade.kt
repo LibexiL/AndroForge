@@ -111,6 +111,8 @@ interface ShadeActions {
     fun global(action: Int) = Unit
     fun start(intent: Intent) = Unit
     fun close() = Unit
+    /** Let the shade take the keyboard (for typing a Wi-Fi password). */
+    fun keyboard(on: Boolean) = Unit
 }
 
 object PreviewShadeActions : ShadeActions
@@ -150,6 +152,10 @@ fun ShadeContent(service: AccessibilityService, geo: IslandGeometry, onRemove: (
             }
 
             override fun close() = closeShade()
+
+            override fun keyboard(on: Boolean) {
+                geo.shadeFocus.value = on
+            }
         }
     }
     val sb = with(LocalDensity.current) { geo.statusBarPx.intValue.toDp() }
@@ -278,11 +284,24 @@ fun ShadeView(s: LauncherSettings, pal: Pal, actions: ShadeActions, modifier: Mo
         }
         Spacer(Modifier.height(10.dp))
 
+        var sub by remember { androidx.compose.runtime.mutableStateOf<ShadeTile?>(null) }
+        when (sub) {
+            ShadeTile.WIFI -> {
+                WifiPanel(pal, hl, hlBrush, actions) { sub = null }
+                return@Column
+            }
+            ShadeTile.BLUETOOTH -> {
+                BluetoothPanel(pal, hl, hlBrush, actions) { sub = null }
+                return@Column
+            }
+            else -> Unit
+        }
+
         if (row) {
             // Wi-Fi and Bluetooth get big buttons that show what you're connected to.
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ConnectionCard(ShadeTile.WIFI, pal, hlBrush, actions, preview, Modifier.weight(1f))
-                ConnectionCard(ShadeTile.BLUETOOTH, pal, hlBrush, actions, preview, Modifier.weight(1f))
+                ConnectionCard(ShadeTile.WIFI, pal, hlBrush, preview, Modifier.weight(1f)) { sub = ShadeTile.WIFI }
+                ConnectionCard(ShadeTile.BLUETOOTH, pal, hlBrush, preview, Modifier.weight(1f)) { sub = ShadeTile.BLUETOOTH }
             }
             val rest = s.shadeTiles.filter { it != ShadeTile.WIFI && it != ShadeTile.BLUETOOTH }
             if (rest.isNotEmpty()) {
@@ -302,7 +321,7 @@ fun ShadeView(s: LauncherSettings, pal: Pal, actions: ShadeActions, modifier: Mo
             s.shadeTiles.chunked(cols).forEach { r ->
                 Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     r.forEach { t ->
-                        Box(Modifier.weight(1f)) { ShadeTileView(t, s, pal, hl, hlBrush, actions, pill, preview) }
+                        Box(Modifier.weight(1f)) { ShadeTileView(t, s, pal, hl, hlBrush, actions, pill, preview, onSub = { sub = it }) }
                     }
                     repeat(cols - r.size) { Spacer(Modifier.weight(1f)) }
                 }
@@ -385,7 +404,7 @@ fun ShadeView(s: LauncherSettings, pal: Pal, actions: ShadeActions, modifier: Mo
 
 /** Wi-Fi / Bluetooth button: icon, name of what you're connected to, signal or battery. */
 @Composable
-private fun ConnectionCard(t: ShadeTile, pal: Pal, hlBrush: Brush, actions: ShadeActions, preview: Boolean, modifier: Modifier) {
+private fun ConnectionCard(t: ShadeTile, pal: Pal, hlBrush: Brush, preview: Boolean, modifier: Modifier, onOpen: () -> Unit) {
     val context = LocalContext.current
     val net by SystemMonitor.net.collectAsState()
     val now = rememberNow(false)
@@ -397,16 +416,7 @@ private fun ConnectionCard(t: ShadeTile, pal: Pal, hlBrush: Brush, actions: Shad
             .height(60.dp)
             .clip(RoundedCornerShape(20.dp))
             .background(if (on) hlBrush else Brush.linearGradient(listOf(fg.copy(alpha = 0.09f), fg.copy(alpha = 0.09f))))
-            .clickable {
-                if (preview) return@clickable
-                if (t == ShadeTile.WIFI) {
-                    actions.start(if (Build.VERSION.SDK_INT >= 29) Intent(Settings.Panel.ACTION_WIFI) else Intent(Settings.ACTION_WIFI_SETTINGS))
-                } else if (!on && bluetoothAvailable(context)) {
-                    actions.start(Intent(android.bluetooth.BluetoothAdapter.ACTION_REQUEST_ENABLE))
-                } else {
-                    actions.start(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
-                }
-            }
+            .clickable { if (!preview) onOpen() }
             .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -528,7 +538,7 @@ private fun Float.roundToIntSafe(): Int = kotlin.math.round(this).toInt()
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun ShadeTileView(t: ShadeTile, s: LauncherSettings, pal: Pal, hl: Color, hlBrush: Brush, actions: ShadeActions, pill: Boolean, preview: Boolean, small: Boolean = false) {
+private fun ShadeTileView(t: ShadeTile, s: LauncherSettings, pal: Pal, hl: Color, hlBrush: Brush, actions: ShadeActions, pill: Boolean, preview: Boolean, small: Boolean = false, onSub: (ShadeTile) -> Unit = {}) {
     val context = LocalContext.current
     val net by SystemMonitor.net.collectAsState()
     val torch by SystemMonitor.torch.collectAsState()
@@ -558,9 +568,9 @@ private fun ShadeTileView(t: ShadeTile, s: LauncherSettings, pal: Pal, hl: Color
     }
     val onClick: () -> Unit = {
         if (!preview) when (t) {
-            ShadeTile.WIFI -> actions.start(if (Build.VERSION.SDK_INT >= 29) Intent(Settings.Panel.ACTION_WIFI) else Intent(Settings.ACTION_WIFI_SETTINGS))
+            ShadeTile.WIFI -> onSub(ShadeTile.WIFI)
             ShadeTile.DATA -> actions.start(if (Build.VERSION.SDK_INT >= 29) Intent(Settings.Panel.ACTION_INTERNET_CONNECTIVITY) else Intent(Settings.ACTION_WIRELESS_SETTINGS))
-            ShadeTile.BLUETOOTH -> actions.start(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
+            ShadeTile.BLUETOOTH -> onSub(ShadeTile.BLUETOOTH)
             ShadeTile.FLASHLIGHT -> SystemMonitor.toggleTorch()
             ShadeTile.RING -> SystemMonitor.cycleRinger()
             ShadeTile.DND -> NotifHub.toggleDnd()

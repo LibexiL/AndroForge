@@ -131,6 +131,15 @@ object AudioViz {
         if (_status.value == Status.RUNNING) _status.value = Status.IDLE
     }
 
+    /** A kick just landed: jumps toward 1 on a beat and decays (for pulses and flashes). */
+    @Volatile
+    var beat: Float = 0f
+        private set
+
+    private val norm = FloatArray(BANDS) { 0.25f }
+    private var bassAvg = 0f
+    private var lastBeat = 0L
+
     private fun process(fft: ByteArray) {
         val n = fft.size / 2
         if (n < 4) return
@@ -141,37 +150,67 @@ object AudioViz {
             mags[k] = sqrt(re * re + im * im)
         }
         val nyquist = samplingRateHz / 2f
-        val lo = 45f
-        val hi = minOf(16000f, nyquist)
+        val lo = 40f
+        val hi = minOf(15000f, nyquist)
         val out = FloatArray(BANDS)
-        var peak = 0f
+        var globalPeak = 0f
         for (b in 0 until BANDS) {
             val f0 = lo * (hi / lo).pow(b / BANDS.toFloat())
             val f1 = lo * (hi / lo).pow((b + 1) / BANDS.toFloat())
-            var i0 = (f0 / nyquist * n).toInt().coerceIn(1, n - 1)
-            val i1 = (f1 / nyquist * n).toInt().coerceIn(i0, n - 1)
-            if (i1 < i0) i0 = i1
-            var sum = 0f
-            var cnt = 0
-            for (i in i0..i1) {
-                sum = max(sum, mags[i])
-                cnt++
+            val p0 = f0 / nyquist * n
+            val p1 = f1 / nyquist * n
+            val raw = if (p1 - p0 < 1f) {
+                // Narrower than one FFT bin (the low end): interpolate so neighbouring bars differ.
+                val c = ((p0 + p1) / 2f).coerceIn(1f, n - 1.001f)
+                val i = c.toInt()
+                val t = c - i
+                mags[i] * (1f - t) + mags[(i + 1).coerceAtMost(n - 1)] * t
+            } else {
+                var m = 0f
+                var sum = 0f
+                val i0 = p0.toInt().coerceIn(1, n - 1)
+                val i1 = p1.toInt().coerceIn(i0, n - 1)
+                for (i in i0..i1) {
+                    m = max(m, mags[i])
+                    sum += mags[i]
+                }
+                // Mostly the loudest bin, a bit of the average so wide bands aren't spiky.
+                m * 0.7f + sum / (i1 - i0 + 1) * 0.3f
             }
-            // Log compression + gentle high-frequency boost, like cava's default curve.
-            val tilt = 1f + b / BANDS.toFloat() * 1.6f
-            val v = ln(1f + sum * tilt) / ln(1f + 128f)
+            val tilt = 1f + b / BANDS.toFloat() * 2.2f
+            val v = (ln(1f + raw * tilt) / ln(1f + 128f) - 0.06f).coerceAtLeast(0f) // gate the hiss floor
             out[b] = v
-            if (v > peak) peak = v
+            if (v > globalPeak) globalPeak = v
         }
-        // Auto gain so quiet and loud songs both fill the widget.
-        gain = if (peak * gain > 1f) 1f / peak else (gain * 1.004f).coerceAtMost(3f)
-        var low = 0f
+        // Each band learns its own loudness (slowly), blended with the overall level, so
+        // highs move as much as lows without everything maxing out.
+        gain = if (globalPeak * gain > 1f) (gain * 0.85f).coerceAtLeast(1f / globalPeak.coerceAtLeast(0.01f)) else (gain * 1.006f).coerceAtMost(3f)
         for (b in 0 until BANDS) {
-            out[b] = (out[b] * gain).coerceIn(0f, 1f)
-            if (b < BANDS / 8) low += out[b]
+            norm[b] = max(norm[b] * 0.996f, out[b]).coerceAtLeast(0.08f)
+            val local = out[b] / (norm[b] * 0.55f + 0.45f / gain.coerceAtLeast(0.34f))
+            out[b] = local.coerceIn(0f, 1f).pow(1.15f)
         }
-        low /= (BANDS / 8)
-        bass = bass * 0.6f + low * 0.4f
-        levels = out
+        // Light smoothing across neighbours (like cava's monstercat filter, but gentle).
+        val sm = FloatArray(BANDS)
+        for (b in 0 until BANDS) {
+            val l = out[(b - 1).coerceAtLeast(0)]
+            val r = out[(b + 1).coerceAtMost(BANDS - 1)]
+            sm[b] = max(out[b], (l + r) * 0.42f)
+        }
+        var low = 0f
+        val lowBands = BANDS / 10
+        for (b in 0 until lowBands) low += sm[b]
+        low /= lowBands
+        // Fast attack, slower release.
+        bass = if (low > bass) bass + (low - bass) * 0.7f else bass * 0.82f + low * 0.18f
+        bassAvg = bassAvg * 0.94f + low * 0.06f
+        val now = android.os.SystemClock.elapsedRealtime()
+        beat = if (low > bassAvg * 1.35f + 0.08f && now - lastBeat > 180) {
+            lastBeat = now
+            1f
+        } else {
+            beat * 0.8f
+        }
+        levels = sm
     }
 }

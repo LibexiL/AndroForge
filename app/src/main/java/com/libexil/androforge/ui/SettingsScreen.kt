@@ -19,11 +19,22 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.ThumbUp
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Face
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -126,6 +137,7 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
         }) { gestureAppFor = null }
     }
     var showPreview by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(true) }
+    val page = vm.settingsPage
     var currentSection by remember { androidx.compose.runtime.mutableStateOf("Home screen") }
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     val motion = LocalMotion.current
@@ -146,12 +158,20 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                 Modifier.padding(start = 20.dp, end = 8.dp, top = 8.dp, bottom = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column(Modifier.weight(1f)) {
-                    Text("AndroForge", fontSize = 26.sp, color = MaterialTheme.colorScheme.primary)
-                    Text("v${Updater.currentVersionName}", fontSize = 12.sp, color = Color.White.copy(alpha = 0.5f))
+                if (page != null) {
+                    IconButton(onClick = { vm.settingsPage = null }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
                 }
-                TextButton(onClick = { showPreview = !showPreview }) { Text(if (showPreview) "Hide preview" else "Preview") }
-                IconButton(onClick = { vm.settingsOpen = false }) { Icon(Icons.Default.Close, "Close") }
+                Column(Modifier.weight(1f)) {
+                    Text(page?.title ?: "AndroForge", fontSize = if (page == null) 26.sp else 22.sp, color = MaterialTheme.colorScheme.primary)
+                    Text(page?.blurb ?: "v${Updater.currentVersionName}", fontSize = 12.sp, color = Color.White.copy(alpha = 0.5f), maxLines = 1)
+                }
+                if (page != null && page.hasPreview) {
+                    TextButton(onClick = { showPreview = !showPreview }) { Text(if (showPreview) "Hide preview" else "Preview") }
+                }
+                IconButton(onClick = {
+                    vm.settingsOpen = false
+                    vm.settingsPage = null
+                }) { Icon(Icons.Default.Close, "Close") }
             }
             // Which section is on screen decides the preview.
             LaunchedEffect(listState) {
@@ -162,10 +182,14 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                         .filter { (it.key as? String)?.startsWith("section:") == true && it.offset < limit }
                         .maxByOrNull { it.offset }
                         ?.let { (it.key as String).removePrefix("section:") }
-                        ?: if (listState.firstVisibleItemIndex == 0) "Home screen" else null
+                        ?: if (listState.firstVisibleItemIndex == 0) vm.settingsPage?.firstSection else null
                 }.collect { sec -> if (sec != null) currentSection = sec }
             }
-            val kind = previewFor(currentSection)
+            LaunchedEffect(page) {
+                page?.let { currentSection = it.firstSection }
+                listState.scrollToItem(0)
+            }
+            val kind = if (page == null) null else previewFor(currentSection)
             androidx.compose.animation.AnimatedVisibility(
                 visible = showPreview && kind != null,
                 enter = androidx.compose.animation.expandVertically(motion.spring(stiffness = 600f)) + androidx.compose.animation.fadeIn(motion.tween(150)),
@@ -178,6 +202,7 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
             val stretch = if (s.stretchScroll) rememberStretch(top = true, bottom = true) else null
             NoPlatformOverscroll(stretch != null) {
             LazyColumn(Modifier.fillMaxSize().stretchy(stretch), state = listState, contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 40.dp)) {
+                if (page == null) {
                 if (!host.isDefaultLauncher()) {
                     item {
                         Banner(
@@ -188,6 +213,9 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                     }
                 }
 
+                    item(key = "menu") { SettingsMenu(s, state) { vm.settingsPage = it } }
+                }
+                if (page == SettingsPage.HOME) {
                 item(key = "section:Home screen") { Section("Home screen") }
                 item { IntSlider("Columns", s.columns, 3..8) { v -> set { it.copy(columns = v) } } }
                 item { IntSlider("Rows", s.rows, 3..10) { v -> set { it.copy(rows = v) } } }
@@ -210,6 +238,8 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                     }
                 }
 
+                }
+                if (page == SettingsPage.MOTION) {
                 item(key = "section:Motion") { Section("Motion") }
                 item { SwitchRow("Animations", s.animations, "Turn off for instant, no-motion transitions") { v -> set { it.copy(animations = v) } } }
                 item { SwitchRow("Stretchy scrolling", s.stretchScroll, "Lists stretch and spring back when you reach the end") { v -> set { it.copy(stretchScroll = v) } } }
@@ -244,6 +274,8 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                     }
                 }
 
+                }
+                if (page == SettingsPage.HOME) {
                 item(key = "section:Icons") { Section("Icons") }
                 item {
                     Choice("Icon shape", IconShape.entries, s.iconShape, { it.label }) { v -> set { it.copy(iconShape = v) } }
@@ -285,6 +317,8 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                     }
                 }
 
+                }
+                if (page == SettingsPage.DOCK) {
                 item(key = "section:Dock") { Section("Dock") }
                 item { SwitchRow("Show dock", s.dockEnabled) { v -> set { it.copy(dockEnabled = v) } } }
                 if (s.dockEnabled) {
@@ -327,6 +361,8 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                     }
                 }
 
+                }
+                if (page == SettingsPage.DRAWER) {
                 item(key = "section:App drawer") { Section("App drawer") }
                 item { IntSlider("Columns", s.drawerColumns, 3..7) { v -> set { it.copy(drawerColumns = v) } } }
                 item {
@@ -347,6 +383,8 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                 item { SwitchRow("Contacts in search", s.searchContacts) { v -> set { it.copy(searchContacts = v) } } }
                 item { SwitchRow("Settings shortcuts in search", s.searchSettings, "Type wifi, bluetooth, battery\u2026") { v -> set { it.copy(searchSettings = v) } } }
 
+                }
+                if (page == SettingsPage.THEME) {
                 item(key = "section:Palette") { Section("Palette") }
                 item {
                     Column(Modifier.padding(horizontal = 20.dp, vertical = 6.dp)) {
@@ -457,6 +495,8 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                 }
                 item { ClickRow("Wallpaper", "Pick a new wallpaper") { host.pickWallpaper() } }
 
+                }
+                if (page == SettingsPage.ISLAND) {
                 item(key = "section:Dynamic island & status bar") { Section("Dynamic island & status bar") }
                 if (s.barMode != BarMode.OFF && !LockService.isRunning) {
                     item {
@@ -503,6 +543,10 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                     item { IntSlider("Move down", s.islandOffsetY, -12..40, suffix = "dp") { v -> set { it.copy(islandOffsetY = v) } } }
                     item { SwitchRow("Music", s.islandMusic, "Album art + visualizer; tap to expand the player") { v -> set { it.copy(islandMusic = v) } } }
                     item { SwitchRow("Visualizer in island", s.islandVisualizer) { v -> set { it.copy(islandVisualizer = v) } } }
+                    if (s.islandVisualizer) {
+                        item { Choice("Island visualizer", com.libexil.androforge.data.VizStyle.entries, s.islandVizStyle, { it.label }) { v -> set { it.copy(islandVizStyle = v) } } }
+                        item { IntSlider("Island bars", s.islandVizBars, 4..24) { v -> set { it.copy(islandVizBars = v) } } }
+                    }
                     item { SwitchRow("Charging & low battery", s.islandCharging) { v -> set { it.copy(islandCharging = v) } } }
                     if (s.islandCharging) {
                         item { SwitchRow("Charging animation", s.islandChargeAnimation, "A filling battery when you plug in") { v -> set { it.copy(islandChargeAnimation = v) } } }
@@ -650,8 +694,15 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                     item { Choice("Battery", BatteryStyle.entries, s.barBattery, { it.label }) { v -> set { it.copy(barBattery = v) } } }
                     item { SwitchRow("Notification icons", s.barNotificationIcons) { v -> set { it.copy(barNotificationIcons = v) } } }
                     item { SwitchRow("Wi-Fi / mobile icon", s.barNetwork) { v -> set { it.copy(barNetwork = v) } } }
+                    item { Choice("Visualizer in the bar", com.libexil.androforge.data.BarViz.entries, s.barViz, { it.label }) { v -> set { it.copy(barViz = v) } } }
+                    if (s.barViz != com.libexil.androforge.data.BarViz.OFF) {
+                        item { Choice("Bar visualizer style", com.libexil.androforge.data.VizStyle.entries, s.barVizStyle, { it.label }) { v -> set { it.copy(barVizStyle = v) } } }
+                        item { Hint("Shows while music plays. Needs the visualizer's audio access.") }
+                    }
                 }
 
+                }
+                if (page == SettingsPage.SHADE) {
                 if (s.barMode != BarMode.OFF) {
                     item(key = "section:Pull-down shade") { Section("Pull-down shade") }
                     item {
@@ -717,6 +768,44 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                         }
                         item { SwitchRow("Brightness slider", s.shadeBrightness) { v -> set { it.copy(shadeBrightness = v) } } }
                         item { SwitchRow("Volume slider", s.shadeVolume, "Media volume; tap the speaker for all volumes") { v -> set { it.copy(shadeVolume = v) } } }
+                        item {
+                            val installed = remember(permissionTick) { com.libexil.androforge.live.ShellAccess.installed(context) }
+                            val running = remember(permissionTick) { com.libexil.androforge.live.ShellAccess.running() }
+                            val granted = remember(permissionTick) { com.libexil.androforge.live.ShellAccess.granted() }
+                            Column(
+                                Modifier
+                                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(20.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceContainer)
+                                    .padding(16.dp),
+                            ) {
+                                Text("Wi-Fi & Bluetooth control", fontSize = 15.sp)
+                                Text(
+                                    when {
+                                        granted -> "Shizuku is connected: the shade switches Wi-Fi and Bluetooth and joins networks instantly."
+                                        running -> "Shizuku is running. Allow AndroForge to use it for instant switching."
+                                        installed -> "Shizuku is installed but not started. Open it and tap Start."
+                                        else -> "Tap Wi-Fi or Bluetooth in the shade for lists of networks and devices. Android only lets apps switch them on/off and join networks through its own screens \u2014 the free Shizuku app (it uses the same wireless debugging you set up for Termux) lets AndroForge do it directly."
+                                    },
+                                    fontSize = 12.sp, color = Color.White.copy(alpha = 0.65f),
+                                )
+                                if (!granted) {
+                                    Spacer(Modifier.height(8.dp))
+                                    Button(onClick = {
+                                        when {
+                                            running -> com.libexil.androforge.live.ShellAccess.request()
+                                            installed -> context.packageManager.getLaunchIntentForPackage(com.libexil.androforge.live.ShellAccess.SHIZUKU_PKG)?.let {
+                                                context.startActivity(it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                                            }
+                                            else -> runCatching {
+                                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=" + com.libexil.androforge.live.ShellAccess.SHIZUKU_PKG)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                                            }
+                                        }
+                                    }) { Text(if (running) "Allow" else if (installed) "Open Shizuku" else "Get Shizuku") }
+                                }
+                            }
+                        }
                         if (s.shadeLayout == com.libexil.androforge.data.ShadeLayout.ROW && !fineOk) {
                             item {
                                 Banner("Show your Wi-Fi network's name", "Android only tells apps the Wi-Fi name if they have precise location. It's not used for anything else.", "Allow") {
@@ -751,6 +840,8 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                     }
                 }
 
+                }
+                if (page == SettingsPage.GESTURES) {
                 item(key = "section:Gestures") { Section("Gestures") }
                 com.libexil.androforge.data.GestureSlot.entries.forEach { slot ->
                     val current = com.libexil.androforge.live.GestureRunner.actionFor(s, slot)
@@ -785,6 +876,8 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                     }
                 }
 
+                }
+                if (page == SettingsPage.SYSTEM) {
                 item(key = "section:Updates") { Section("Updates") }
                 item {
                     SwitchRow("Check for updates automatically", s.autoCheckUpdates, "Looks for new releases on GitHub every few hours") { v ->
@@ -841,6 +934,7 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                         "AndroForge • ${apps.size} apps • ${state.items.size} home items\n" +
                             "Long-press the home screen for widgets, pages and wallpaper. Drop an app onto another to make a folder.",
                     )
+                }
                 }
             }
             }
@@ -1113,4 +1207,89 @@ private fun ColorRow(title: String, selected: Long, colors: List<Long>, onSelect
             }
         }
     }
+}
+
+
+/** The pages settings are split into. */
+enum class SettingsPage(val title: String, val blurb: String, val firstSection: String, val hasPreview: Boolean = true) {
+    HOME("Home screen & icons", "Grid, labels, icon shape, tint and dots", "Home screen"),
+    THEME("Theme & colors", "Palette, wallpaper colors, night theme, live background", "Palette"),
+    DOCK("Dock", "Style, size, magnify, recents", "Dock"),
+    DRAWER("App drawer & search", "Columns, A\u2013Z bar, private apps, smart search", "App drawer"),
+    ISLAND("Island & status bar", "Dynamic island, pop-ups, custom bar, visualizers", "Dynamic island & status bar"),
+    SHADE("Pull-down shade", "Layout, tiles, Wi-Fi & Bluetooth, sliders", "Pull-down shade"),
+    GESTURES("Gestures", "Swipes, double tap, pinch and shake", "Gestures", hasPreview = false),
+    MOTION("Motion", "Animation speed, bounce, stretchy scrolling", "Motion"),
+    SYSTEM("Backup & updates", "GitHub backup, export, updates, about", "Updates", hasPreview = false),
+}
+
+@Composable
+private fun SettingsMenu(s: LauncherSettings, state: LauncherState, onOpen: (SettingsPage) -> Unit) {
+    val pal = LocalPalette.current
+    fun summary(p: SettingsPage): String = when (p) {
+        SettingsPage.HOME -> "${s.columns} \u00d7 ${s.rows} grid \u00b7 ${s.iconShape.label} icons" + if (s.iconTint != com.libexil.androforge.data.IconTint.OFF) " \u00b7 ${s.iconTint.label}" else ""
+        SettingsPage.THEME -> pal.source.name + if (s.nightTheme) " \u00b7 night theme on" else ""
+        SettingsPage.DOCK -> if (s.dockEnabled) "${s.dockStyle.label} \u00b7 ${s.dockMaxIcons} icons" else "Off"
+        SettingsPage.DRAWER -> "${s.drawerColumns} columns \u00b7 ${state.hidden.size} private"
+        SettingsPage.ISLAND -> s.barMode.label + if (s.hideSystemPopups) " \u00b7 Android pop-ups hidden" else ""
+        SettingsPage.SHADE -> if (s.barMode == BarMode.OFF) "Needs the island on" else s.shadeMode.label + "'s \u00b7 " + s.shadeLayout.label
+        SettingsPage.GESTURES -> "Swipe up: ${s.swipeUp.label} \u00b7 Double tap: ${s.doubleTap.label}"
+        SettingsPage.MOTION -> if (s.animations) "Speed ${(s.animScale * 100).roundToInt()}% \u00b7 bounce ${(s.animBounce * 100).roundToInt()}%" else "Animations off"
+        SettingsPage.SYSTEM -> "Version ${Updater.currentVersionName}" + if (state.lastGistBackup > 0) " \u00b7 backed up" else ""
+    }
+    val groups = listOf(
+        "Look" to listOf(SettingsPage.HOME, SettingsPage.THEME, SettingsPage.MOTION),
+        "Layout" to listOf(SettingsPage.DOCK, SettingsPage.DRAWER),
+        "System UI" to listOf(SettingsPage.ISLAND, SettingsPage.SHADE),
+        "Control" to listOf(SettingsPage.GESTURES, SettingsPage.SYSTEM),
+    )
+    Column(Modifier.padding(horizontal = 16.dp)) {
+        groups.forEach { (title, pages) ->
+            Text(title.uppercase(), color = MaterialTheme.colorScheme.primary, fontSize = 11.sp, letterSpacing = 1.4.sp, modifier = Modifier.padding(start = 6.dp, top = 18.dp, bottom = 6.dp))
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainer),
+            ) {
+                pages.forEachIndexed { i, p ->
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable { onOpen(p) }
+                            .padding(horizontal = 14.dp, vertical = 13.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        androidx.compose.foundation.layout.Box(
+                            Modifier
+                                .padding(end = 14.dp)
+                                .size(38.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(pal.gradientAt(SettingsPage.entries.indexOf(p) / (SettingsPage.entries.size - 1f)).copy(alpha = 0.85f)),
+                            contentAlignment = Alignment.Center,
+                        ) { Icon(pageIcon(p), null, tint = Color.White, modifier = Modifier.size(20.dp)) }
+                        Column(Modifier.weight(1f)) {
+                            Text(p.title, fontSize = 15.sp)
+                            Text(summary(p), fontSize = 12.sp, color = Color.White.copy(alpha = 0.55f), maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                        }
+                        Text("\u203a", fontSize = 22.sp, color = Color.White.copy(alpha = 0.4f))
+                    }
+                    if (i < pages.size - 1) androidx.compose.material3.HorizontalDivider(Modifier.padding(start = 66.dp), color = Color.White.copy(alpha = 0.06f))
+                }
+            }
+        }
+        Spacer(Modifier.height(16.dp))
+    }
+}
+
+private fun pageIcon(p: SettingsPage): androidx.compose.ui.graphics.vector.ImageVector = when (p) {
+    SettingsPage.HOME -> Icons.Default.Home
+    SettingsPage.THEME -> Icons.Default.Face
+    SettingsPage.DOCK -> Icons.Default.Star
+    SettingsPage.DRAWER -> Icons.Default.Search
+    SettingsPage.ISLAND -> Icons.Default.Notifications
+    SettingsPage.SHADE -> Icons.Default.Menu
+    SettingsPage.GESTURES -> Icons.Default.ThumbUp
+    SettingsPage.MOTION -> Icons.Default.PlayArrow
+    SettingsPage.SYSTEM -> Icons.Default.Settings
 }

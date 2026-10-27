@@ -288,8 +288,17 @@ class MainActivity : ComponentActivity(), LauncherHost {
         handleIntent(intent, fresh = false)
     }
 
+    private val requestMany = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        PermissionBus.changed()
+    }
+
     private fun handleIntent(intent: Intent?, fresh: Boolean) {
         if (intent == null) return
+        intent.getStringArrayExtra(com.libexil.androforge.island.EXTRA_REQUEST_PERMISSIONS)?.let { perms ->
+            intent.removeExtra(com.libexil.androforge.island.EXTRA_REQUEST_PERMISSIONS)
+            if (perms.isNotEmpty()) requestMany.launch(perms)
+            return
+        }
         if (intent.getBooleanExtra(UpdateNotifier.EXTRA_SHOW_UPDATE, false)) {
             intent.removeExtra(UpdateNotifier.EXTRA_SHOW_UPDATE)
             vm.checkForUpdates(manual = true)

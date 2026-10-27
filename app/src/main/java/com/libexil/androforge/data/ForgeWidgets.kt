@@ -42,7 +42,8 @@ enum class ArtStyle(val label: String) { SQUARE("Square"), RECORD("Spinning reco
 @Serializable
 enum class VizStyle(val label: String) {
     BARS("Bars"), MIRROR("Mirrored bars"), BLOCKS("LED blocks"), WAVE("Wave"),
-    MIRRORWAVE("Mirrored wave"), RADIAL("Radial ring"), DOTS("Dot columns")
+    MIRRORWAVE("Mirrored wave"), RADIAL("Radial ring"), DOTS("Dot columns"),
+    GLOW("Glow line"), ORB("Bass orb"), SPECTRUM("Spectrum fill"), BOUNCE("Bouncing dots"), PILLS("Pill stack"), FLAME("Flame")
 }
 
 @Serializable

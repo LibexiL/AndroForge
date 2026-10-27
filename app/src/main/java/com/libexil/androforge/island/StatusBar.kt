@@ -176,9 +176,24 @@ fun StatusBarView(s: com.libexil.androforge.data.LauncherSettings, pal: Pal, mod
     val small = (s.barTextSize - 1).coerceAtLeast(9).sp
     val iconPx = (s.barTextSize + 1).dp
 
+    val media by com.libexil.androforge.live.MediaHub.state.collectAsState()
+    val vizStatus by com.libexil.androforge.live.AudioViz.status.collectAsState()
+    val vizOn = s.barViz != com.libexil.androforge.data.BarViz.OFF && media?.playing == true &&
+        vizStatus != com.libexil.androforge.live.AudioViz.Status.NO_PERMISSION && vizStatus != com.libexil.androforge.live.AudioViz.Status.UNSUPPORTED
+    val frame = com.libexil.androforge.ui.forge.rememberViz(
+        if (s.barViz == com.libexil.androforge.data.BarViz.CLOCK) 12 else 48,
+        active = vizOn,
+    )
+    val vizColors = pal.stops(ColorRole.GRADIENT)
     val clock: @Composable () -> Unit = {
         Row(verticalAlignment = Alignment.CenterVertically) {
+            if (vizOn && s.barViz == com.libexil.androforge.data.BarViz.CLOCK && s.barClock == com.libexil.androforge.data.ClockPosition.RIGHT) {
+                com.libexil.androforge.ui.forge.VisualizerCanvas(frame, s.barVizStyle, vizColors, Modifier.padding(end = 8.dp).size(width = 44.dp, height = iconPx + 2.dp), gap = 0.3f, peaks = false, minLevel = 0.08f)
+            }
             Text(time, style = textStyle, maxLines = 1)
+            if (vizOn && s.barViz == com.libexil.androforge.data.BarViz.CLOCK && s.barClock != com.libexil.androforge.data.ClockPosition.RIGHT) {
+                com.libexil.androforge.ui.forge.VisualizerCanvas(frame, s.barVizStyle, vizColors, Modifier.padding(start = 8.dp).size(width = 44.dp, height = iconPx + 2.dp), gap = 0.3f, peaks = false, minLevel = 0.08f)
+            }
             if (s.barShowDate) {
                 Spacer(Modifier.width(8.dp))
                 Text(date, style = textStyle.copy(color = text.copy(alpha = 0.75f), fontSize = small, fontWeight = FontWeight.Normal), maxLines = 1)
@@ -249,6 +264,18 @@ fun StatusBarView(s: com.libexil.androforge.data.LauncherSettings, pal: Pal, mod
                     .then(if (floating) Modifier.padding(horizontal = 8.dp, vertical = 2.dp) else Modifier)
                     .surface(if (floating) corner else null),
             ) {
+                if (vizOn && s.barViz == com.libexil.androforge.data.BarViz.BACKGROUND) {
+                    com.libexil.androforge.ui.forge.VisualizerCanvas(
+                        frame, s.barVizStyle, vizColors.map { it.copy(alpha = 0.45f) },
+                        Modifier.matchParentSize(), gap = 0.25f, peaks = false, minLevel = 0.03f,
+                    )
+                }
+                if (vizOn && s.barViz == com.libexil.androforge.data.BarViz.UNDERLINE) {
+                    com.libexil.androforge.ui.forge.VisualizerCanvas(
+                        frame, s.barVizStyle, vizColors,
+                        Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(5.dp), gap = 0.2f, rounded = true, peaks = false, minLevel = 0.05f,
+                    )
+                }
                 Row(
                     Modifier.fillMaxSize().padding(horizontal = if (floating) 14.dp else side),
                     verticalAlignment = Alignment.CenterVertically,

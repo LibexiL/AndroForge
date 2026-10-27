@@ -148,6 +148,10 @@ enum class ShadeMode(val label: String) { ANDROID("Android's"), FORGE("AndroForg
 @Serializable
 enum class ShadeStyle(val label: String) { GLASS("Glass"), SOLID("Solid"), GRADIENT("Gradient"), CLEAR("Clear") }
 
+/** Where the custom status bar shows a visualizer while music plays. */
+@Serializable
+enum class BarViz(val label: String) { OFF("Off"), CLOCK("Beside the clock"), UNDERLINE("Along the bottom"), BACKGROUND("Behind the bar") }
+
 @Serializable
 enum class ShadeLayout(val label: String) { ROW("Compact row"), GRID("Grid") }
 
@@ -235,6 +239,10 @@ data class LauncherSettings(
     val islandFollowCamera: Boolean = true,
     val islandMusic: Boolean = true,
     val islandVisualizer: Boolean = true,
+    val islandVizStyle: VizStyle = VizStyle.MIRROR,
+    val islandVizBars: Int = 10,
+    val barViz: BarViz = BarViz.CLOCK,
+    val barVizStyle: VizStyle = VizStyle.BARS,
     val islandCharging: Boolean = true,
     val islandNotifications: Boolean = true,
     val islandHideLandscape: Boolean = true,

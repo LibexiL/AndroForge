@@ -34,6 +34,12 @@ class VizFrame(val bars: Int) {
     val values = FloatArray(bars)
     val peaks = FloatArray(bars)
     private val peakHold = FloatArray(bars)
+    private val fall = FloatArray(bars)
+    /** 0..1 bass level and beat flash, eased for drawing. */
+    var bass = 0f
+        private set
+    var beat = 0f
+        private set
     var tick by mutableLongStateOf(0L)
     var spin = 0f
         private set
@@ -57,7 +63,14 @@ class VizFrame(val bars: Int) {
             for (k in a until b) sum += source[k]
             val target = sum / (b - a)
             val v = values[i]
-            values[i] = if (target > v) v + (target - v) * min(1f, dt * 28f) else max(target, v - dt * 1.6f)
+            if (target > v) {
+                values[i] = v + (target - v) * min(1f, dt * 32f)
+                fall[i] = 0f
+            } else {
+                // Falls like cava: slow at first, then faster (gravity).
+                fall[i] += dt * 7f
+                values[i] = max(target, v - fall[i] * dt)
+            }
             if (values[i] >= peaks[i]) {
                 peaks[i] = values[i]
                 peakHold[i] = 0.35f
@@ -68,6 +81,8 @@ class VizFrame(val bars: Int) {
             }
             if (values[i] > 0.002f || peaks[i] > 0.002f) active = true
         }
+        bass += (AudioViz.bass - bass) * min(1f, dt * 18f)
+        beat = max(AudioViz.beat, beat - dt * 3f)
         return active
     }
 }
@@ -225,6 +240,89 @@ fun DrawScope.drawViz(
                 }
             }
             drawCircle(Brush.sweepGradient(stops + stops.first(), c), r0 - 3f, c, style = Stroke(1.5f))
+        }
+        VizStyle.GLOW -> {
+            val mid = h / 2f
+            val pts = (0 until n).map { i -> Offset(i * slot + slot / 2f, mid - (level(i) - 0.02f) * h * 0.45f * (if (i % 2 == 0) 1f else -1f)) }
+            val path = Path().apply {
+                moveTo(0f, mid)
+                var prev = Offset(0f, mid)
+                for (p in pts) {
+                    val mx = (prev.x + p.x) / 2f
+                    cubicTo(mx, prev.y, mx, p.y, p.x, p.y)
+                    prev = p
+                }
+                cubicTo((prev.x + w) / 2f, prev.y, (prev.x + w) / 2f, mid, w, mid)
+            }
+            val brush = Brush.horizontalGradient(stops)
+            for ((width, a) in listOf(14f to 0.12f, 8f to 0.22f, 4f to 0.45f)) {
+                drawPath(path, brush, alpha = a * (0.6f + frame.bass * 0.6f).coerceAtMost(1f), style = Stroke(width, cap = StrokeCap.Round))
+            }
+            drawPath(path, brush, style = Stroke(2f, cap = StrokeCap.Round))
+        }
+        VizStyle.ORB -> {
+            val c = Offset(w / 2f, h / 2f)
+            val rMax = min(w, h) / 2f
+            val r = rMax * (0.42f + frame.bass * 0.45f + frame.beat * 0.12f).coerceAtMost(1f)
+            drawCircle(Brush.radialGradient(listOf(stops.first().copy(alpha = 0.55f), Color.Transparent), c, rMax), rMax, c)
+            drawCircle(Brush.radialGradient(stops, c, r.coerceAtLeast(1f)), r, c)
+            // Highs sparkle around the rim.
+            for (i in 0 until n) {
+                val a = (i / n.toFloat()) * 2f * PI.toFloat() + frame.spin * 0.02f
+                val len = level(i) * rMax * 0.35f
+                val dir = Offset(cos(a), sin(a))
+                drawLine(gradientAt(stops, i / (n - 1f).coerceAtLeast(1f)), c + dir * r, c + dir * (r + len), strokeWidth = 2f, cap = StrokeCap.Round)
+            }
+        }
+        VizStyle.SPECTRUM -> {
+            val path = Path().apply {
+                moveTo(0f, h)
+                for (i in 0 until n) lineTo(i * slot + slot / 2f, h - level(i) * h)
+                lineTo(w, h)
+                close()
+            }
+            drawPath(path, Brush.verticalGradient(stops.reversed().map { it.copy(alpha = 0.75f) } + Color.Transparent, 0f, h))
+            for (i in 0 until n) {
+                val x = i * slot + slot / 2f
+                drawLine(gradientAt(stops, i / (n - 1f).coerceAtLeast(1f)), Offset(x, h), Offset(x, h - level(i) * h), strokeWidth = 1.2f)
+            }
+        }
+        VizStyle.BOUNCE -> {
+            val d = (slot * 0.7f).coerceAtMost(h / 4f)
+            for (i in 0 until n) {
+                val cx = i * slot + slot / 2f
+                val y = h - d / 2f - level(i) * (h - d)
+                drawLine(gradientAt(stops, i / (n - 1f).coerceAtLeast(1f)).copy(alpha = 0.25f), Offset(cx, h), Offset(cx, y), strokeWidth = d * 0.25f)
+                drawCircle(gradientAt(stops, level(i)), d / 2f * (0.8f + frame.beat * 0.4f), Offset(cx, y))
+            }
+        }
+        VizStyle.PILLS -> {
+            val segs = 6
+            val segH = h / segs
+            for (i in 0 until n) {
+                val x = i * slot + (slot - bw) / 2f
+                val lv = level(i) * segs
+                for (k in 0 until segs) {
+                    val fill = (lv - k).coerceIn(0f, 1f)
+                    if (fill <= 0f) break
+                    val y = h - (k + 1) * segH + segH * 0.15f
+                    drawRoundRect(gradientAt(stops, k / (segs - 1f)).copy(alpha = 0.35f + 0.65f * fill), Offset(x, y), Size(bw, segH * 0.7f), CornerRadius(bw / 2f, bw / 2f))
+                }
+            }
+        }
+        VizStyle.FLAME -> {
+            for (i in 0 until n) {
+                val bh = level(i) * h
+                val x = i * slot + slot / 2f
+                val flick = kotlin.math.sin(frame.spin * 0.3f + i * 1.7f) * slot * 0.25f
+                val p = Path().apply {
+                    moveTo(x - bw / 2f, h)
+                    quadraticTo(x - bw * 0.7f, h - bh * 0.5f, x + flick, h - bh)
+                    quadraticTo(x + bw * 0.7f, h - bh * 0.5f, x + bw / 2f, h)
+                    close()
+                }
+                drawPath(p, Brush.verticalGradient(listOf(stops.last(), stops.first(), stops.first().copy(alpha = 0.6f)), h - bh, h))
+            }
         }
         VizStyle.DOTS -> {
             val d = bw.coerceAtMost(h / 6f)

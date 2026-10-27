@@ -36,6 +36,8 @@ class DragState {
 
     // Geometry published by the UI.
     var gridRect: Rect = Rect.Zero
+    /** True while an app is being rearranged inside an open folder (don't flip home pages). */
+    var overFolder: Boolean = false
     var page: Int = 0
     var cols: Int = 5
     var rows: Int = 6

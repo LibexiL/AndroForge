@@ -495,7 +495,7 @@ private fun HomePager(
             val p = drag.position
             val r = drag.gridRect
             val s = when {
-                r == Rect.Zero || p.y < r.top || p.y > r.bottom -> 0
+                r == Rect.Zero || drag.overFolder || p.y < r.top || p.y > r.bottom -> 0
                 p.x < r.left + edge -> -1
                 p.x > r.right - edge -> 1
                 else -> 0

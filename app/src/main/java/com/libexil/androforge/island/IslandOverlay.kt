@@ -85,6 +85,8 @@ class IslandGeometry {
     val wantsFocus = mutableStateOf(false)
     /** AndroForge's pull-down shade. */
     val shadeOpen = mutableStateOf(false)
+    /** The shade needs the keyboard (typing a Wi-Fi password). */
+    val shadeFocus = mutableStateOf(false)
     /** Opens AndroForge's shade or Android's, depending on settings and the lock screen. */
     var openShade: () -> Unit = {}
 }
@@ -139,6 +141,11 @@ class IslandOverlay(private val service: AccessibilityService) {
         active = geo
         scope.launch {
             snapshotFlow { geo.shadeOpen.value }.collect { open -> if (open) ensureShade() }
+        }
+        scope.launch {
+            snapshotFlow { geo.shadeFocus.value }.collect {
+                shadeRoot?.let { v -> runCatching { wm.updateViewLayout(v, shadeParams()) } }
+            }
         }
         scope.launch {
             snapshotFlow { geo.wantsFocus.value }.collect {
@@ -399,9 +406,7 @@ class IslandOverlay(private val service: AccessibilityService) {
         val v = composeView {
             ShadeContent(service, geo) { removeShade() }
         }
-        val params = baseParams(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT, touchable = true).apply {
-            gravity = Gravity.TOP
-        }
+        val params = shadeParams()
         try {
             wm.addView(v, params)
             shadeRoot = v
@@ -413,7 +418,16 @@ class IslandOverlay(private val service: AccessibilityService) {
         }
     }
 
+    private fun shadeParams() = baseParams(
+        WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
+        touchable = true, focusable = geo.shadeFocus.value,
+    ).apply {
+        gravity = Gravity.TOP
+        if (geo.shadeFocus.value) softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE or WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE
+    }
+
     private fun removeShade() {
+        geo.shadeFocus.value = false
         shadeRoot?.let { runCatching { wm.removeView(it) } }
         shadeRoot = null
         geo.shadeOpen.value = false

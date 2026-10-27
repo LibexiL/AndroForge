@@ -467,7 +467,7 @@ private fun IdlePill(s: LauncherSettings, h: Dp) {
 
 @Composable
 private fun MusicPill(m: MediaInfo, s: LauncherSettings, h: Dp, pal: Pal, c: IslandColors, vizOk: Boolean) {
-    val frame = rememberViz(10, active = vizOk)
+    val frame = rememberViz(s.islandVizBars.coerceIn(4, 32), active = vizOk)
     Row(
         Modifier
             .height(h)
@@ -479,9 +479,9 @@ private fun MusicPill(m: MediaInfo, s: LauncherSettings, h: Dp, pal: Pal, c: Isl
         Spacer(Modifier.weight(1f))
         if (vizOk) {
             VisualizerCanvas(
-                frame, VizStyle.MIRROR, pal.stops(ColorRole.GRADIENT),
+                frame, s.islandVizStyle, pal.stops(ColorRole.GRADIENT),
                 Modifier
-                    .width(42.dp)
+                    .width(if (s.islandVizStyle == VizStyle.ORB || s.islandVizStyle == VizStyle.RADIAL) 30.dp else (30 + s.islandVizBars * 2).coerceAtMost(80).dp)
                     .fillMaxHeight()
                     .padding(vertical = 6.dp),
                 gap = 0.4f, peaks = false, minLevel = 0.12f,

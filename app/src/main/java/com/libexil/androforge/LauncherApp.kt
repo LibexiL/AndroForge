@@ -24,6 +24,8 @@ class LauncherApp : Application() {
         SystemMonitor.init(this)
         MediaHub.init(this)
         AudioViz.init(this)
+        com.libexil.androforge.live.WifiControl.init(this)
+        com.libexil.androforge.live.BluetoothControl.init(this)
         com.libexil.androforge.live.SystemOverride.apply(this, store.state.value.settings)
         com.libexil.androforge.live.SystemOverride.watch(this) { store.state.value.settings }
         com.libexil.androforge.data.Palettes.checkWallpaperChanged(this)
