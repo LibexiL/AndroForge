@@ -221,6 +221,7 @@ fun StatusBarView(s: com.libexil.androforge.data.LauncherSettings, pal: Pal, mod
                     BatteryGlyph(battery.level, battery.charging, batteryColor(battery, pal, text), Modifier.size(width = bw, height = bh))
                 }
                 BatteryStyle.ICON -> BatteryGlyph(battery.level, battery.charging, batteryColor(battery, pal, text), Modifier.size(width = bw, height = bh))
+                BatteryStyle.NONE -> Unit
                 BatteryStyle.PERCENT -> Text("${battery.level}%" + if (battery.charging) " \u26A1" else "", style = textStyle.copy(fontSize = small))
                 BatteryStyle.BAR -> Box(Modifier.size(width = 34.dp, height = 4.dp)) {
                     Canvas(Modifier.fillMaxSize()) {

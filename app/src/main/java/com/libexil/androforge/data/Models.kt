@@ -172,7 +172,7 @@ enum class IslandTap(val label: String) { GLANCE("Glance panel"), SHADE("Notific
 enum class BarBackground(val label: String) { BLACK("Black"), PALETTE("Palette"), GRADIENT("Gradient") }
 
 @Serializable
-enum class BatteryStyle(val label: String) { ICON_PERCENT("Icon + %"), ICON("Icon"), PERCENT("%"), BAR("Line") }
+enum class BatteryStyle(val label: String) { ICON_PERCENT("Icon + %"), ICON("Icon"), PERCENT("%"), BAR("Line"), NONE("Hidden") }
 
 @Serializable
 enum class FolderStyle(val label: String) {
@@ -241,7 +241,7 @@ data class LauncherSettings(
     val islandVisualizer: Boolean = true,
     val islandVizStyle: VizStyle = VizStyle.MIRROR,
     val islandVizBars: Int = 10,
-    val barViz: BarViz = BarViz.CLOCK,
+    val barViz: BarViz = BarViz.OFF,
     val barVizStyle: VizStyle = VizStyle.BARS,
     val islandCharging: Boolean = true,
     val islandNotifications: Boolean = true,
@@ -350,6 +350,8 @@ data class LauncherState(
     val launchHours: Map<String, List<Int>> = emptyMap(),
     val lastSeenVersion: Int = 0,
     val lastGistBackup: Long = 0L,
+    /** One-time setting fixes already applied to this install. */
+    val fixesApplied: Int = 0,
     val settings: LauncherSettings = LauncherSettings(),
     val initialized: Boolean = false,
     val lastUpdateCheck: Long = 0L,

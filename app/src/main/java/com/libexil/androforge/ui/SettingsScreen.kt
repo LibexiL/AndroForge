@@ -661,6 +661,15 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                     item(key = "section:Custom status bar") { Section("Custom status bar") }
                     item { Hint("Covers the system status bar with your own.") }
                     item { Choice("Style", com.libexil.androforge.data.BarStyle.entries, s.barStyle, { it.label }) { v -> set { it.copy(barStyle = v) } } }
+                    if ((s.barStyle == com.libexil.androforge.data.BarStyle.CLEAR || s.barStyle == com.libexil.androforge.data.BarStyle.GLASS || s.barOpacity < 0.95f) && !(s.hideSystemIcons && overrideOk)) {
+                        item {
+                            Banner(
+                                "Samsung's icons show through",
+                                "A see-through bar shows Android's own clock, battery and media chip underneath. Hide them, or pick Solid.",
+                                if (overrideOk) "Hide Android's icons" else "Use Solid",
+                            ) { set { if (overrideOk) it.copy(hideSystemIcons = true) else it.copy(barStyle = com.libexil.androforge.data.BarStyle.SOLID, barOpacity = 1f) } }
+                        }
+                    }
                     if (s.barStyle == com.libexil.androforge.data.BarStyle.CLEAR) {
                         item { Hint("Clear shows Android's icons underneath unless you also turn on \u201cHide Android's status bar icons\u201d above.") }
                     }

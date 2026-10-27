@@ -222,6 +222,16 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             store.update { it.copy(lastSeenVersion = Updater.currentVersionCode) }
         }
         crashLog = CrashReporter.pending(app)
+        if (s0.fixesApplied < 1) {
+            // The bar visualizer was on by default and doubled up with Samsung's own media chip.
+            store.update { st -> st.copy(fixesApplied = 1, settings = st.settings.copy(barViz = com.libexil.androforge.data.BarViz.OFF)) }
+        }
+        if (s0.fixesApplied < 2) {
+            // With AndroForge's own bar, Samsung's clock/battery shouldn't show through it.
+            val hide = s0.settings.barMode == com.libexil.androforge.data.BarMode.ISLAND_BAR && com.libexil.androforge.live.SystemOverride.canWrite(app)
+            store.update { st -> st.copy(fixesApplied = 2, settings = if (hide) st.settings.copy(hideSystemIcons = true) else st.settings) }
+            if (hide) com.libexil.androforge.live.SystemOverride.apply(app, state.value.settings)
+        }
         viewModelScope.launch {
             repo.loaded.first { it }
             if (!state.value.initialized) seedDefaults()
