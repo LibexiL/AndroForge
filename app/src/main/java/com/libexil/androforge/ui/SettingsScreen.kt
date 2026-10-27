@@ -108,6 +108,9 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
             androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.BLUETOOTH_CONNECT) ==
             android.content.pm.PackageManager.PERMISSION_GRANTED
     }
+    val fineOk = remember(permissionTick) {
+        androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
+    }
     var excludeOpen by remember { androidx.compose.runtime.mutableStateOf(false) }
     var appColorsOpen by remember { androidx.compose.runtime.mutableStateOf(false) }
     var gestureAppFor by remember { androidx.compose.runtime.mutableStateOf<com.libexil.androforge.data.GestureSlot?>(null) }
@@ -714,9 +717,6 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                         }
                         item { SwitchRow("Brightness slider", s.shadeBrightness) { v -> set { it.copy(shadeBrightness = v) } } }
                         item { SwitchRow("Volume slider", s.shadeVolume, "Media volume; tap the speaker for all volumes") { v -> set { it.copy(shadeVolume = v) } } }
-                        val fineOk = remember(permissionTick) {
-                            androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
-                        }
                         if (s.shadeLayout == com.libexil.androforge.data.ShadeLayout.ROW && !fineOk) {
                             item {
                                 Banner("Show your Wi-Fi network's name", "Android only tells apps the Wi-Fi name if they have precise location. It's not used for anything else.", "Allow") {
