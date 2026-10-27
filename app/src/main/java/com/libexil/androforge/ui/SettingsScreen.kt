@@ -703,6 +703,10 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
 
                 }
                 if (page == SettingsPage.SHADE) {
+                if (s.barMode == BarMode.OFF) {
+                    item { Hint("AndroForge's shade runs with the dynamic island. Turn the island on first.") }
+                    item { ClickRow("Turn on the island", "Island & status bar \u2192 Mode") { set { it.copy(barMode = BarMode.ISLAND) } } }
+                }
                 if (s.barMode != BarMode.OFF) {
                     item(key = "section:Pull-down shade") { Section("Pull-down shade") }
                     item {
