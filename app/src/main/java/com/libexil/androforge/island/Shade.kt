@@ -71,6 +71,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -154,6 +155,39 @@ fun ShadeContent(service: AccessibilityService, geo: IslandGeometry, onRemove: (
     val sb = with(LocalDensity.current) { geo.statusBarPx.intValue.toDp() }
     val scrim = if (s.shadeStyle == ShadeStyle.CLEAR) 0.62f else 0.38f
     var dragged by remember { mutableFloatStateOf(0f) }
+    // Swiping up anywhere on the panel closes it: once the list can't scroll any further up,
+    // the rest of the swipe pulls the whole panel up, and letting go far enough (or fast) closes it.
+    val closeOnSwipe = remember {
+        object : androidx.compose.ui.input.nestedscroll.NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: androidx.compose.ui.input.nestedscroll.NestedScrollSource): Offset {
+                // Already pulled up and now moving back down: lower the panel before scrolling the list.
+                if (dragged < 0f && available.y > 0f) {
+                    val d = minOf(available.y, -dragged)
+                    dragged += d
+                    return Offset(0f, d)
+                }
+                return Offset.Zero
+            }
+
+            override fun onPostScroll(consumed: Offset, available: Offset, source: androidx.compose.ui.input.nestedscroll.NestedScrollSource): Offset {
+                if (source == androidx.compose.ui.input.nestedscroll.NestedScrollSource.UserInput && available.y < 0f) {
+                    dragged += available.y
+                    return Offset(0f, available.y)
+                }
+                return Offset.Zero
+            }
+
+            override suspend fun onPreFling(available: androidx.compose.ui.unit.Velocity): androidx.compose.ui.unit.Velocity {
+                if (dragged == 0f) return androidx.compose.ui.unit.Velocity.Zero
+                if (dragged < -70f || available.y < -900f) {
+                    closeShade()
+                } else {
+                    androidx.compose.animation.core.animate(dragged, 0f, animationSpec = motion.spring(stiffness = 700f)) { v, _ -> dragged = v }
+                }
+                return available
+            }
+        }
+    }
     Box(
         Modifier
             .fillMaxSize()
@@ -165,8 +199,7 @@ fun ShadeContent(service: AccessibilityService, geo: IslandGeometry, onRemove: (
                     onDragStart = { dragged = 0f },
                     onVerticalDrag = { _, d -> dragged = (dragged + d).coerceAtMost(0f) },
                     onDragEnd = {
-                        if (dragged < -80f) closeShade()
-                        dragged = 0f
+                        if (dragged < -60f) closeShade() else dragged = 0f
                     },
                 )
             },
@@ -175,9 +208,11 @@ fun ShadeContent(service: AccessibilityService, geo: IslandGeometry, onRemove: (
             s, pal, actions,
             Modifier
                 .padding(top = sb + 4.dp, start = 8.dp, end = 8.dp)
+                .nestedScroll(closeOnSwipe)
                 .graphicsLayer {
                     val p = progress.value
                     translationY = -(1f - p) * 260.dp.toPx() + dragged
+                    alpha = (1f + dragged / 600f).coerceIn(0.4f, 1f)
                     scaleY = 0.92f + 0.08f * p
                     transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0f)
                 }
