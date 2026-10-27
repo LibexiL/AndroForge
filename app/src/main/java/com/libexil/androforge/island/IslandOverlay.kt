@@ -140,7 +140,10 @@ class IslandOverlay(private val service: AccessibilityService) {
         }
         active = geo
         scope.launch {
-            snapshotFlow { geo.shadeOpen.value }.collect { open -> if (open) ensureShade() }
+            snapshotFlow { geo.shadeOpen.value }.collect { open ->
+                val locked = service.getSystemService(android.app.KeyguardManager::class.java)?.isKeyguardLocked == true
+                if (open && locked) geo.shadeOpen.value = false else if (open) ensureShade()
+            }
         }
         scope.launch {
             snapshotFlow { geo.shadeFocus.value }.collect {
@@ -155,8 +158,16 @@ class IslandOverlay(private val service: AccessibilityService) {
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(c: Context, i: Intent) {
                 when (i.action) {
-                    Intent.ACTION_SCREEN_OFF -> owner.pause()
-                    Intent.ACTION_SCREEN_ON, Intent.ACTION_USER_PRESENT -> owner.resume()
+                    Intent.ACTION_SCREEN_OFF -> {
+                        // Locking the phone always closes AndroForge's shade (and any keyboard it had).
+                        removeShade()
+                        geo.collapseTick.intValue++
+                        owner.pause()
+                    }
+                    Intent.ACTION_SCREEN_ON, Intent.ACTION_USER_PRESENT -> {
+                        if (service.getSystemService(android.app.KeyguardManager::class.java)?.isKeyguardLocked == true) removeShade()
+                        owner.resume()
+                    }
                 }
             }
         }
