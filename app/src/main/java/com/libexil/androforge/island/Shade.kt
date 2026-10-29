@@ -8,6 +8,7 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
@@ -382,7 +383,23 @@ fun ShadeView(s: LauncherSettings, pal: Pal, actions: ShadeActions, modifier: Mo
         if (list.isEmpty()) {
             Text("No notifications", color = muted, fontSize = 13.sp, modifier = Modifier.padding(vertical = 10.dp))
         } else {
-            list.forEach { e -> ShadeNotification(e, pal, actions) }
+            // Same app = one stack; tap it to fan the notifications out.
+            val groups = remember(list) { list.groupBy { it.pkg }.values.toList() }
+            var expanded by remember { androidx.compose.runtime.mutableStateOf(setOf<String>()) }
+            groups.forEach { g ->
+                androidx.compose.runtime.key(g.first().pkg) {
+                    if (g.size == 1) {
+                        ShadeNotification(g.first(), pal, actions)
+                    } else {
+                        NotificationStack(
+                            g, pal, hl,
+                            open = g.first().pkg in expanded,
+                            onToggle = { pkg -> expanded = if (pkg in expanded) expanded - pkg else expanded + pkg },
+                            actions = actions,
+                        )
+                    }
+                }
+            }
         }
         // Handle: drag up or tap to close.
         Box(
@@ -765,6 +782,98 @@ private fun BrightnessRow(pal: Pal, hl: Color, actions: ShadeActions, preview: B
                     .clickable { actions.start(Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, Uri.parse("package:" + context.packageName))) }
                     .padding(horizontal = 10.dp, vertical = 8.dp),
             )
+        }
+    }
+}
+
+/** Several notifications from one app: a stacked card that opens into the separate notifications. */
+@Composable
+private fun NotificationStack(group: List<NotifEntry>, pal: Pal, hl: Color, open: Boolean, onToggle: (String) -> Unit, actions: ShadeActions) {
+    val fg = pal.foreground
+    val top = group.first()
+    val pkg = top.pkg
+    androidx.compose.animation.AnimatedContent(
+        targetState = open,
+        transitionSpec = {
+            (androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(180)) + androidx.compose.animation.expandVertically(expandFrom = Alignment.Top))
+                .togetherWith(androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(120)) + androidx.compose.animation.shrinkVertically(shrinkTowards = Alignment.Top))
+        },
+        label = "stack",
+    ) { isOpen ->
+        if (!isOpen) {
+            // Collapsed: the newest one on top, the rest peeking out underneath.
+            Box(Modifier.fillMaxWidth().padding(top = 6.dp)) {
+                val behind = (group.size - 1).coerceAtMost(2)
+                for (k in behind downTo 1) {
+                    Box(
+                        Modifier
+                            .matchParentSize()
+                            .padding(start = (k * 10).dp, end = (k * 10).dp)
+                            .graphicsLayer { translationY = (k * 6).dp.toPx() }
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(fg.copy(alpha = 0.05f + 0.02f * (3 - k))),
+                    )
+                }
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = (behind * 6).dp)
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(pal.background.copy(alpha = 0.55f))
+                        .background(fg.copy(alpha = 0.08f))
+                        .clickable { onToggle(pkg) }
+                        .padding(10.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        NotifAvatar(top, pal, 34.dp)
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(top.appName, color = pal.muted, fontSize = 10.5.sp, maxLines = 1)
+                            Text(top.title, color = fg, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            if (top.text.isNotBlank()) Text(top.text, color = fg.copy(alpha = 0.75f), fontSize = 12.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        Text(
+                            "${group.size}", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                            modifier = Modifier.clip(RoundedCornerShape(50)).background(hl).padding(horizontal = 9.dp, vertical = 3.dp),
+                        )
+                    }
+                    Text(
+                        "+${group.size - 1} more \u2022 tap to see all", color = pal.muted, fontSize = 11.sp,
+                        modifier = Modifier.padding(start = 44.dp, top = 4.dp),
+                    )
+                }
+            }
+        } else {
+            Column(Modifier.fillMaxWidth().padding(top = 6.dp)) {
+                Row(Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(top.appName, color = fg, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    if (group.any { it.clearable }) {
+                        Text(
+                            "Clear", color = pal.muted, fontSize = 12.sp,
+                            modifier = Modifier.clip(RoundedCornerShape(50)).clickable { group.filter { it.clearable }.forEach { NotifHub.dismiss(it.key) } }
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                        )
+                    }
+                    Text(
+                        "Show less \u25B4", color = hl, fontSize = 12.sp,
+                        modifier = Modifier.clip(RoundedCornerShape(50)).clickable { onToggle(pkg) }.padding(horizontal = 8.dp, vertical = 4.dp),
+                    )
+                }
+                group.forEach { e -> ShadeNotification(e, pal, actions) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun NotifAvatar(e: NotifEntry, pal: Pal, size: Dp) {
+    Box(
+        Modifier.size(size).clip(CircleShape).background(if (e.color != 0) Color(e.color) else pal.accent),
+        contentAlignment = Alignment.Center,
+    ) {
+        when {
+            e.largeIcon != null -> Image(e.largeIcon, null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+            e.smallIcon != null -> Image(e.smallIcon, null, modifier = Modifier.size(size * 0.53f))
         }
     }
 }
