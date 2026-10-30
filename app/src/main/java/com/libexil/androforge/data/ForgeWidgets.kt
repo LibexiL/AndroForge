@@ -20,10 +20,23 @@ enum class ForgeKind(val label: String, val title: String, val w: Int, val h: In
     SEARCH("Search bar", "", 4, 1, "Tap to search your apps or the web"),
     BATTERY("Battery", "BATTERY", 2, 2, "Big charge ring with time-to-full while charging"),
     STACK("Widget stack", "", 4, 2, "Several widgets in one spot — swipe up or down to flip through them"),
+    NOTE("Sticky note", "", 2, 2, "A note in any palette color; tap to edit"),
+    PHOTO("Photo frame", "", 2, 2, "Any photo, cropped to fit, with a palette frame"),
+    WORLD_CLOCK("World clocks", "WORLD CLOCK", 4, 2, "Times in up to four cities, with day/night"),
+    STOPWATCH("Stopwatch & timer", "STOPWATCH", 4, 2, "A stopwatch that keeps running, plus one-tap timers"),
+    QUOTE("Quote of the day", "", 4, 2, "A new quote every day; tap for another"),
+    MOON("Moon phase", "MOON", 2, 2, "Tonight's moon, how full it is and the next full moon"),
+    HABIT("Habit tracker", "HABITS", 4, 2, "Tick off habits each day and keep your streaks"),
+    NOTIFS("Notifications", "NOTIFICATIONS", 4, 3, "Your latest notifications on the home screen"),
+    AGENDA("Agenda", "AGENDA", 4, 3, "Upcoming events from your calendar"),
 }
 
 @Serializable
 data class TodoItem(val text: String, val done: Boolean = false)
+
+/** A habit and the days (epoch day numbers) it was done. */
+@Serializable
+data class HabitItem(val name: String, val done: List<Long> = emptyList())
 
 @Serializable
 enum class PanelBackground(val label: String) {
@@ -69,6 +82,12 @@ data class PanelLook(
     val title: String = "",
     val font: PanelFont = PanelFont.DEFAULT,
     val textScale: Float = 1f,
+    /** Tints the background with a palette color (null = the palette's background). */
+    val bgRole: ColorRole? = null,
+    /** Text color (null = the palette's text color). */
+    val textRole: ColorRole? = null,
+    val shadow: Boolean = false,
+    val paddingScale: Float = 1f,
 )
 
 @Serializable
@@ -115,6 +134,24 @@ data class ForgeOptions(
     val stackKinds: List<ForgeKind> = listOf(ForgeKind.CLOCK, ForgeKind.MUSIC, ForgeKind.WEATHER, ForgeKind.CALENDAR),
     val stackAutoMusic: Boolean = true,
     val stackAutoRotate: Boolean = false,
+    // sticky note
+    val noteText: String = "Tap to write a note",
+    val noteColor: ColorRole = ColorRole.YELLOW,
+    // photo frame
+    val photoFile: String? = null,
+    val photoFill: Boolean = true,
+    // world clocks
+    val worldZones: List<String> = listOf("America/New_York", "Europe/London", "Asia/Tokyo"),
+    // stopwatch (persisted so it keeps running)
+    val swStartedAt: Long = 0L,
+    val swAccumulated: Long = 0L,
+    val timerPresets: List<Int> = listOf(1, 5, 10, 25),
+    // habits
+    val habits: List<HabitItem> = listOf(HabitItem("Drink water"), HabitItem("Read"), HabitItem("Exercise")),
+    // notifications widget
+    val notifMax: Int = 5,
+    // agenda
+    val agendaDays: Int = 3,
 )
 
 @Serializable
@@ -139,6 +176,10 @@ fun defaultLook(kind: ForgeKind): PanelLook = when (kind) {
     ForgeKind.SEARCH -> PanelLook(background = PanelBackground.FROSTED, showTitle = false, radius = 40)
     ForgeKind.CALENDAR -> PanelLook(showTitle = false)
     ForgeKind.STACK -> PanelLook(background = PanelBackground.FROSTED)
+    ForgeKind.NOTE -> PanelLook(showTitle = false, bgRole = ColorRole.YELLOW, opacity = 0.85f, border = false, shadow = true, radius = 16)
+    ForgeKind.PHOTO -> PanelLook(showTitle = false, background = PanelBackground.NONE, border = true, radius = 24, shadow = true)
+    ForgeKind.QUOTE -> PanelLook(showTitle = false, background = PanelBackground.FROSTED)
+    ForgeKind.MOON -> PanelLook(showTitle = false)
     else -> PanelLook()
 }
 

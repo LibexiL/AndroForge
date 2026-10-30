@@ -197,8 +197,14 @@ fun IconLabel(text: String, modifier: Modifier = Modifier, color: Color? = null,
         style = TextStyle(
             color = color ?: Color(settings.labelColor),
             fontSize = (sizeSp ?: settings.labelSizeSp).sp,
-            shadow = labelShadow,
+            shadow = if (settings.labelShadow) labelShadow else null,
             textAlign = TextAlign.Center,
+            fontWeight = if (settings.labelBold) androidx.compose.ui.text.font.FontWeight.SemiBold else null,
+            fontFamily = when (settings.labelFont) {
+                com.libexil.androforge.data.PanelFont.MONO -> androidx.compose.ui.text.font.FontFamily.Monospace
+                com.libexil.androforge.data.PanelFont.SERIF -> androidx.compose.ui.text.font.FontFamily.Serif
+                else -> null
+            },
         ),
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,

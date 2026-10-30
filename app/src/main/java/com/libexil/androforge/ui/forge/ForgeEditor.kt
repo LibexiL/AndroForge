@@ -69,8 +69,10 @@ fun ForgeEditor(
     onLook: ((PanelLook) -> PanelLook) -> Unit,
     onRequestLocation: () -> Unit,
     onClose: () -> Unit,
+    onPickPhoto: () -> Unit = {},
 ) {
     var tab by remember { mutableIntStateOf(0) }
+    CompositionLocalPickPhoto = onPickPhoto
     BoxWithConstraints(
         Modifier
             .fillMaxSize()
@@ -175,6 +177,54 @@ private fun StyleTab(
             fontSize = 12.sp, color = Color.White.copy(alpha = 0.55f), modifier = Modifier.padding(top = 8.dp),
         )
         ForgeKind.STACK -> StackEditor(item, pal, set, onRequestLocation)
+        ForgeKind.NOTE -> {
+            OutlinedTextField(
+                value = o.noteText,
+                onValueChange = { v -> set { it.copy(noteText = v.take(400)) } },
+                label = { Text("Note") },
+                minLines = 3,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            EdRoleSwatches("Note color", pal, o.noteColor) { v -> set { it.copy(noteColor = v) } }
+        }
+        ForgeKind.PHOTO -> {
+            Button(onClick = { CompositionLocalPickPhoto() }, modifier = Modifier.padding(top = 8.dp)) { Text(if (o.photoFile == null) "Pick a photo" else "Change photo") }
+            EdSwitch("Fill the frame", o.photoFill, "Off shows the whole photo") { v -> set { it.copy(photoFill = v) } }
+        }
+        ForgeKind.WORLD_CLOCK -> {
+            EdLabel("Cities (up to 4)")
+            @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+            androidx.compose.foundation.layout.FlowRow(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp)) {
+                (worldZoneChoices + o.worldZones).distinct().forEach { z ->
+                    val on = z in o.worldZones
+                    androidx.compose.material3.FilterChip(
+                        selected = on,
+                        onClick = { set { it.copy(worldZones = if (on) it.worldZones - z else (it.worldZones + z).takeLast(4)) } },
+                        label = { Text(zoneName(z)) },
+                    )
+                }
+            }
+        }
+        ForgeKind.STOPWATCH -> {
+            EdLabel("Timer buttons (minutes)")
+            @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+            androidx.compose.foundation.layout.FlowRow(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(6.dp)) {
+                listOf(1, 2, 3, 5, 10, 15, 20, 25, 30, 45, 60).forEach { m ->
+                    val on = m in o.timerPresets
+                    androidx.compose.material3.FilterChip(
+                        selected = on,
+                        onClick = { set { it.copy(timerPresets = (if (on) it.timerPresets - m else it.timerPresets + m).sorted().take(4)) } },
+                        label = { Text("$m") },
+                    )
+                }
+            }
+            Text("Timers run in your clock app, so they ring even when AndroForge is closed \u2014 and the island counts them down.", fontSize = 12.sp, color = Color.White.copy(alpha = 0.55f))
+        }
+        ForgeKind.QUOTE -> Text("A new quote every day. Tap the widget for another one.", fontSize = 12.sp, color = Color.White.copy(alpha = 0.55f), modifier = Modifier.padding(top = 8.dp))
+        ForgeKind.MOON -> Text("Calculated on your phone \u2014 no internet needed.", fontSize = 12.sp, color = Color.White.copy(alpha = 0.55f), modifier = Modifier.padding(top = 8.dp))
+        ForgeKind.HABIT -> HabitEditor(o, set)
+        ForgeKind.NOTIFS -> EdSlider("How many", o.notifMax.toFloat(), 1f..10f, steps = 8, format = { "${it.roundToInt()}" }) { v -> set { it.copy(notifMax = v.roundToInt()) } }
+        ForgeKind.AGENDA -> EdSlider("Days ahead", o.agendaDays.toFloat(), 1f..14f, steps = 12, format = { "${it.roundToInt()}" }) { v -> set { it.copy(agendaDays = v.roundToInt()) } }
         ForgeKind.SYSTEM -> {
             EdChips("Gauges", GaugeStyle.entries, o.gaugeStyle, { it.label }) { v -> set { it.copy(gaugeStyle = v) } }
             Text(
@@ -220,6 +270,33 @@ private fun StackEditor(
             }
         }
         StyleTab(item.copy(kind = editing), pal, set, onRequestLocation)
+    }
+}
+
+/** Set while the editor is open (the photo picker lives in the activity). */
+private var CompositionLocalPickPhoto: () -> Unit = {}
+
+@Composable
+private fun HabitEditor(o: ForgeOptions, set: ((ForgeOptions) -> ForgeOptions) -> Unit) {
+    var newName by remember { mutableStateOf("") }
+    EdLabel("Habits (up to 5)")
+    o.habits.forEachIndexed { i, h ->
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 2.dp)) {
+            Text(h.name, modifier = Modifier.weight(1f))
+            TextButton(onClick = { set { it.copy(habits = it.habits.filterIndexed { j, _ -> j != i }) } }) { Text("Remove") }
+        }
+    }
+    if (o.habits.size < 5) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(value = newName, onValueChange = { newName = it.take(30) }, label = { Text("New habit") }, singleLine = true, modifier = Modifier.weight(1f))
+            TextButton(onClick = {
+                if (newName.isNotBlank()) {
+                    val n = newName.trim()
+                    set { it.copy(habits = it.habits + com.libexil.androforge.data.HabitItem(n)) }
+                    newName = ""
+                }
+            }) { Text("Add") }
+        }
     }
 }
 
@@ -304,6 +381,14 @@ private fun LookTab(look: PanelLook, pal: Pal, set: ((PanelLook) -> PanelLook) -
     }
     EdChips("Font", PanelFont.entries, look.font, { it.label }) { v -> set { it.copy(font = v) } }
     EdSlider("Text size", look.textScale, 0.7f..1.5f, format = { "${(it * 100).roundToInt()}%" }) { v -> set { it.copy(textScale = v) } }
+    EdChips("Background color", listOf<com.libexil.androforge.data.ColorRole?>(null) + com.libexil.androforge.data.ColorRole.entries.filter { it != com.libexil.androforge.data.ColorRole.GRADIENT }, look.bgRole, { it?.label ?: "Theme" }) { v ->
+        set { it.copy(bgRole = v) }
+    }
+    EdChips("Text color", listOf<com.libexil.androforge.data.ColorRole?>(null) + com.libexil.androforge.data.ColorRole.entries.filter { it != com.libexil.androforge.data.ColorRole.GRADIENT && it != com.libexil.androforge.data.ColorRole.FOREGROUND }, look.textRole, { it?.label ?: "Theme" }) { v ->
+        set { it.copy(textRole = v) }
+    }
+    EdSwitch("Drop shadow", look.shadow) { v -> set { it.copy(shadow = v) } }
+    EdSlider("Inner spacing", look.paddingScale, 0.4f..1.8f, format = { "${(it * 100).roundToInt()}%" }) { v -> set { it.copy(paddingScale = v) } }
     Box(Modifier.padding(top = 6.dp))
 }
 

@@ -407,6 +407,7 @@ fun LauncherScreen(vm: LauncherViewModel, host: LauncherHost) {
                             onLook = { t -> vm.updateForge(id) { it.copy(look = t(it.look)) } },
                             onRequestLocation = { host.requestPermission(Manifest.permission.ACCESS_COARSE_LOCATION) },
                             onClose = { vm.editForgeId = null },
+                            onPickPhoto = { host.pickWidgetPhoto(id) },
                         )
                     } ?: run { vm.editForgeId = null }
                 }
@@ -525,7 +526,7 @@ private fun HomePager(
         state = pagerState,
         modifier = modifier
             .fillMaxSize()
-            .padding(horizontal = 6.dp)
+            .padding(horizontal = settings.homeSidePaddingDp.dp)
             .onGloballyPositioned { drag.gridRect = it.boundsInRoot() },
         beyondViewportPageCount = 1,
         key = { it },
@@ -534,7 +535,50 @@ private fun HomePager(
             snapAnimationSpec = LocalMotion.current.spring(stiffness = 380f, visibilityThreshold = 0.5f, bouncy = false),
         ),
     ) { page ->
-        HomePage(page, settings.rows, vm, state, appsById, drag, host, onDragEnd, onDoubleTap)
+        val effect = settings.pageEffect
+        Box(
+            Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    if (effect == com.libexil.androforge.data.PageEffect.SLIDE) return@graphicsLayer
+                    val off = ((pagerState.currentPage - page) + pagerState.currentPageOffsetFraction).coerceIn(-1f, 1f)
+                    val a = kotlin.math.abs(off)
+                    when (effect) {
+                        com.libexil.androforge.data.PageEffect.CUBE -> {
+                            cameraDistance = 14f * density
+                            transformOrigin = androidx.compose.ui.graphics.TransformOrigin(if (off < 0) 0f else 1f, 0.5f)
+                            rotationY = -off * 70f
+                        }
+                        com.libexil.androforge.data.PageEffect.FADE -> {
+                            alpha = 1f - a
+                            translationX = off * size.width * 0.9f
+                        }
+                        com.libexil.androforge.data.PageEffect.ZOOM -> {
+                            val k = 1f - a * 0.25f
+                            scaleX = k
+                            scaleY = k
+                            alpha = 1f - a * 0.6f
+                        }
+                        com.libexil.androforge.data.PageEffect.STACK -> if (off > 0f) {
+                            // The page underneath stays put and shrinks a little as the next one slides over it.
+                            translationX = off * size.width
+                            val k = 1f - a * 0.12f
+                            scaleX = k
+                            scaleY = k
+                            alpha = 1f - a * 0.5f
+                        }
+                        com.libexil.androforge.data.PageEffect.FLIP -> {
+                            cameraDistance = 14f * density
+                            translationX = off * size.width
+                            rotationY = off * 180f
+                            alpha = if (a > 0.5f) 0f else 1f
+                        }
+                        else -> Unit
+                    }
+                },
+        ) {
+            HomePage(page, settings.rows, vm, state, appsById, drag, host, onDragEnd, onDoubleTap)
+        }
     }
 }
 
@@ -768,6 +812,8 @@ private fun ForgeWidgetCell(item: ForgeWidgetItem, vm: LauncherViewModel, host: 
                 vm.emit(UiEvent.OpenDrawer)
                 vm.searchFocusTick++
             }
+            override fun pickPhoto() = host.pickWidgetPhoto(current.id)
+            override fun requestPermission(permission: String) = host.requestPermission(permission)
         }
     }
     val haptic = LocalHapticFeedback.current

@@ -49,6 +49,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.input.pointer.pointerInput
@@ -94,10 +95,20 @@ interface ForgeActions {
     fun update(transform: (com.libexil.androforge.data.ForgeOptions) -> com.libexil.androforge.data.ForgeOptions) = Unit
     fun launch(app: com.libexil.androforge.data.AppKey) = Unit
     fun openSearch() = Unit
+    fun pickPhoto() = Unit
+    fun requestPermission(permission: String) = Unit
+}
+
+/** The palette as this widget's look wants it (custom text color). */
+fun Pal.forLook(look: com.libexil.androforge.data.PanelLook): Pal {
+    val textRole = look.textRole ?: return this
+    val c = role(textRole)
+    return Pal(source.copy(foreground = com.libexil.androforge.data.Palettes.hex(c.toArgb())))
 }
 
 @Composable
-fun ForgeWidget(item: ForgeWidgetItem, pal: Pal, actions: ForgeActions) {
+fun ForgeWidget(item: ForgeWidgetItem, basePal: Pal, actions: ForgeActions) {
+    val pal = androidx.compose.runtime.remember(basePal, item.look.textRole) { basePal.forLook(item.look) }
     when (item.kind) {
         ForgeKind.CLOCK -> ForgePanel(item.look, item.kind, pal) { ClockWidget(item, pal) }
         ForgeKind.MUSIC -> ForgePanel(item.look, item.kind, pal, reactsToMusic = true) { MusicWidget(item, pal, actions) }
@@ -113,6 +124,15 @@ fun ForgeWidget(item: ForgeWidgetItem, pal: Pal, actions: ForgeActions) {
         ForgeKind.SEARCH -> ForgePanel(item.look, item.kind, pal, padding = 4.dp) { SearchWidget(item, pal, actions) }
         ForgeKind.BATTERY -> ForgePanel(item.look, item.kind, pal) { BatteryWidget(item, pal) }
         ForgeKind.STACK -> StackWidget(item, pal, actions)
+        ForgeKind.NOTE -> ForgePanel(item.look.copy(bgRole = item.options.noteColor), item.kind, pal) { NoteWidget(item, pal, actions) }
+        ForgeKind.PHOTO -> PhotoWidget(item, pal, actions)
+        ForgeKind.WORLD_CLOCK -> ForgePanel(item.look, item.kind, pal) { WorldClockWidget(item, pal) }
+        ForgeKind.STOPWATCH -> ForgePanel(item.look, item.kind, pal) { StopwatchWidget(item, pal, actions) }
+        ForgeKind.QUOTE -> ForgePanel(item.look, item.kind, pal) { QuoteWidget(item, pal) }
+        ForgeKind.MOON -> ForgePanel(item.look, item.kind, pal) { MoonWidget(item, pal) }
+        ForgeKind.HABIT -> ForgePanel(item.look, item.kind, pal) { HabitWidget(item, pal, actions) }
+        ForgeKind.NOTIFS -> ForgePanel(item.look, item.kind, pal) { NotifsWidget(item, pal, actions) }
+        ForgeKind.AGENDA -> ForgePanel(item.look, item.kind, pal) { AgendaWidget(item, pal, actions) }
     }
 }
 
@@ -712,6 +732,8 @@ fun ForgeKindGlyph(kind: ForgeKind, pal: Pal) {
         }
         ForgeKind.CALENDAR, ForgeKind.COUNTDOWN, ForgeKind.TODO, ForgeKind.SHELF,
         ForgeKind.NETWORK, ForgeKind.GREETING, ForgeKind.SEARCH, ForgeKind.BATTERY, ForgeKind.STACK -> NewKindGlyph(kind, pal)
+        ForgeKind.NOTE, ForgeKind.PHOTO, ForgeKind.WORLD_CLOCK, ForgeKind.STOPWATCH, ForgeKind.QUOTE,
+        ForgeKind.MOON, ForgeKind.HABIT, ForgeKind.NOTIFS, ForgeKind.AGENDA -> ExtraKindGlyph(kind, pal)
         ForgeKind.MUSIC, ForgeKind.VISUALIZER, ForgeKind.SYSTEM -> Canvas(Modifier.fillMaxSize().padding(8.dp)) {
             val w = size.width
             val h = size.height

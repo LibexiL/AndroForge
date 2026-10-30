@@ -40,6 +40,10 @@
         tools:ignore="ProtectedPermissions" />
     <!-- Contacts in the drawer search (optional, asked for when you use it). -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <!-- Agenda widget (asked for when you add it). -->
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
+    <!-- Stopwatch widget's one-tap timers (runs them in your clock app). -->
+    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
     <!-- Fingerprint lock for private apps. -->
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
     <!-- Reading the wallpaper image itself so "Match wallpaper colors" uses its real colors. -->

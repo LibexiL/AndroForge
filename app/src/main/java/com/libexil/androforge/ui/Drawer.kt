@@ -155,8 +155,17 @@ fun AppDrawer(
     val labels = state.labels
     fun labelOf(a: AppInfo) = labels[a.key.id] ?: a.label
 
-    val visible = remember(apps, state.hidden, labels) {
-        apps.filter { it.key.id !in state.hidden }.sortedBy { labelOf(it).lowercase() }
+    val sortMode = settings.drawerSort
+    val visible = remember(apps, state.hidden, labels, sortMode, if (sortMode == com.libexil.androforge.data.DrawerSort.AZ) null else state.launchCounts, if (sortMode == com.libexil.androforge.data.DrawerSort.RECENT) state.recents else null) {
+        val base = apps.filter { it.key.id !in state.hidden }.sortedBy { labelOf(it).lowercase() }
+        when (sortMode) {
+            com.libexil.androforge.data.DrawerSort.AZ -> base
+            com.libexil.androforge.data.DrawerSort.MOST_USED -> base.sortedByDescending { state.launchCounts[it.key.id] ?: 0 }
+            com.libexil.androforge.data.DrawerSort.RECENT -> {
+                val order = state.recents.mapIndexed { i, k -> k.id to i }.toMap()
+                base.sortedBy { order[it.key.id] ?: Int.MAX_VALUE }
+            }
+        }
     }
     LaunchedEffect(query) { if (query.isNotBlank()) letter = null }
     val filtered = remember(visible, query, letter) {
@@ -235,7 +244,7 @@ fun AppDrawer(
                 translationY = (1f - drawer.progress) * drawer.heightPx
                 alpha = if (hiddenForDrag) 0f else 1f
             }
-            .background(Color(0xFF0C0C10).copy(alpha = settings.drawerOpacity))
+            .then(drawerBackground(settings.drawerBackground, settings.drawerOpacity, LocalPalette.current))
             .statusBarsPadding()
             .navigationBarsPadding()
             .imePadding(),
@@ -300,7 +309,7 @@ fun AppDrawer(
 
         val cols = settings.drawerColumns
         val showSugg = query.isBlank() && letter == null && suggestions.isNotEmpty()
-        val fastScroll = settings.drawerFastScroll && query.isBlank() && visible.size > cols * 4
+        val fastScroll = settings.drawerFastScroll && settings.drawerSort == com.libexil.androforge.data.DrawerSort.AZ && query.isBlank() && visible.size > cols * 4
         val available = remember(visible) { visible.map { letterOf(labelOf(it)) }.toSet() }
         val scope = rememberCoroutineScope()
         val motion = LocalMotion.current
@@ -657,7 +666,7 @@ private fun DrawerAppCell(app: AppInfo, label: String, vm: LauncherViewModel, dr
     ) {
         Box(contentAlignment = Alignment.TopEnd) {
             AppIcon(
-                app.key, settings.iconSizeDp.dp,
+                app.key, (if (settings.drawerIconSizeDp > 0) settings.drawerIconSizeDp else settings.iconSizeDp).dp,
                 Modifier
                     .pressScale(pressed)
                     .graphicsLayer {
@@ -679,8 +688,12 @@ private fun DrawerAppCell(app: AppInfo, label: String, vm: LauncherViewModel, dr
                 }
             }
         }
-        Spacer(Modifier.height(6.dp))
-        IconLabel(label, color = Color.White)
+        if (settings.drawerLabels) {
+            Spacer(Modifier.height(6.dp))
+            IconLabel(label, color = Color.White)
+        } else {
+            Spacer(Modifier.height(10.dp))
+        }
     }
 }
 
@@ -965,4 +978,21 @@ fun PrivateAppsSheet(vm: LauncherViewModel, state: LauncherState, apps: List<App
             }
         }
     }
+}
+
+private fun drawerBackground(style: com.libexil.androforge.data.DrawerBackground, opacity: Float, pal: Pal): Modifier = when (style) {
+    com.libexil.androforge.data.DrawerBackground.DARK -> Modifier.background(Color(0xFF0C0C10).copy(alpha = opacity))
+    com.libexil.androforge.data.DrawerBackground.PALETTE -> Modifier.background(pal.background.copy(alpha = opacity))
+    com.libexil.androforge.data.DrawerBackground.GRADIENT -> Modifier.background(
+        androidx.compose.ui.graphics.Brush.verticalGradient(
+            listOf(
+                androidx.compose.ui.graphics.lerp(pal.background, pal.accent, 0.25f).copy(alpha = opacity),
+                pal.background.copy(alpha = opacity),
+                androidx.compose.ui.graphics.lerp(pal.background, pal.accent2, 0.18f).copy(alpha = opacity),
+            ),
+        ),
+    )
+    com.libexil.androforge.data.DrawerBackground.GLASS -> Modifier
+        .background(pal.surface.copy(alpha = opacity * 0.6f))
+        .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.1f), Color.White.copy(alpha = 0.02f))))
 }

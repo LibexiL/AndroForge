@@ -118,6 +118,35 @@ class MainActivity : ComponentActivity(), LauncherHost {
         }
     }
 
+    private var widgetPhotoFor: String? = null
+
+    private val pickWidgetImage = registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        val id = widgetPhotoFor ?: return@registerForActivityResult
+        widgetPhotoFor = null
+        if (uri == null) return@registerForActivityResult
+        try {
+            // Decode at a sensible size and keep our own copy (the picker's access doesn't last).
+            val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            contentResolver.openInputStream(uri)?.use { android.graphics.BitmapFactory.decodeStream(it, null, bounds) }
+            var sample = 1
+            while (maxOf(bounds.outWidth, bounds.outHeight) / sample > 1600) sample *= 2
+            val bmp = contentResolver.openInputStream(uri)?.use {
+                android.graphics.BitmapFactory.decodeStream(it, null, android.graphics.BitmapFactory.Options().apply { inSampleSize = sample })
+            } ?: error("unreadable")
+            val dir = java.io.File(filesDir, "widget_photos").apply { mkdirs() }
+            val name = "photo_" + System.currentTimeMillis() + ".jpg"
+            java.io.File(dir, name).outputStream().use { bmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, it) }
+            vm.updateForge(id) { it.copy(options = it.options.copy(photoFile = name)) }
+        } catch (e: Exception) {
+            Toast.makeText(this, "Couldn't use that photo", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    override fun pickWidgetPhoto(itemId: String) {
+        widgetPhotoFor = itemId
+        pickWidgetImage.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+    }
+
     override fun pickIconPhoto(key: com.libexil.androforge.data.AppKey) {
         iconPhotoFor = key
         pickIcon.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))

@@ -91,6 +91,8 @@ fun ForgePanel(
         null
     }
     val overWallpaper = look.background == PanelBackground.NONE || look.background == PanelBackground.OUTLINE
+    val bgBase = look.bgRole?.let { androidx.compose.ui.graphics.lerp(pal.background, pal.role(it), 0.55f) } ?: pal.background
+    val surfBase = look.bgRole?.let { androidx.compose.ui.graphics.lerp(pal.surface, pal.role(it), 0.45f) } ?: pal.surface
     val textStyle = TextStyle(
         fontFamily = look.font.family(),
         color = pal.foreground,
@@ -117,13 +119,24 @@ fun ForgePanel(
                     }
                 }
                 val a = look.opacity.coerceIn(0f, 1f)
+                if (look.shadow && look.background != PanelBackground.NONE) {
+                    for (k in 1..4) {
+                        val o = k * 1.5.dp.toPx()
+                        drawRoundRect(
+                            Color.Black.copy(alpha = 0.09f),
+                            Offset(-o / 2f, o),
+                            Size(size.width + o, size.height + o / 2f),
+                            CornerRadius(r + o, r + o),
+                        )
+                    }
+                }
                 when (look.background) {
-                    PanelBackground.SOLID -> drawRoundRect(pal.background.copy(alpha = a), cornerRadius = cr)
+                    PanelBackground.SOLID -> drawRoundRect(bgBase.copy(alpha = a), cornerRadius = cr)
                     PanelBackground.GRADIENT -> drawRoundRect(
                         Brush.linearGradient(
                             listOf(
-                                androidx.compose.ui.graphics.lerp(pal.surface, hl, 0.22f).copy(alpha = a),
-                                pal.background.copy(alpha = a),
+                                androidx.compose.ui.graphics.lerp(surfBase, hl, 0.22f).copy(alpha = a),
+                                bgBase.copy(alpha = a),
                             ),
                             start = Offset.Zero,
                             end = Offset(size.width, size.height),
@@ -131,7 +144,7 @@ fun ForgePanel(
                         cornerRadius = cr,
                     )
                     PanelBackground.FROSTED -> {
-                        drawRoundRect(pal.surface.copy(alpha = a * 0.55f), cornerRadius = cr)
+                        drawRoundRect(surfBase.copy(alpha = a * 0.55f), cornerRadius = cr)
                         drawRoundRect(
                             Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.12f), Color.White.copy(alpha = 0.03f))),
                             cornerRadius = cr,
@@ -153,7 +166,7 @@ fun ForgePanel(
                     )
                 }
             }
-            .padding(padding),
+            .padding(padding * look.paddingScale.coerceIn(0.3f, 2f)),
     ) {
         CompositionLocalProvider(
             LocalTextStyle provides textStyle,

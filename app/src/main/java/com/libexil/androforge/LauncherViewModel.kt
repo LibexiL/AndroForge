@@ -722,5 +722,6 @@ interface LauncherHost {
     fun exportPalette(palette: com.libexil.androforge.data.ForgePalette)
     fun pickPaletteImage()
     fun pickIconPhoto(key: AppKey)
+    fun pickWidgetPhoto(itemId: String)
     fun authenticate(title: String, onSuccess: () -> Unit)
 }

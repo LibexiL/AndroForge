@@ -152,6 +152,16 @@ enum class ShadeStyle(val label: String) { GLASS("Glass"), SOLID("Solid"), GRADI
 @Serializable
 enum class BarViz(val label: String) { OFF("Off"), CLOCK("Beside the clock"), UNDERLINE("Along the bottom"), BACKGROUND("Behind the bar") }
 
+/** How home pages move when you swipe between them. */
+@Serializable
+enum class PageEffect(val label: String) { SLIDE("Slide"), CUBE("Cube"), FADE("Fade"), ZOOM("Zoom"), STACK("Stack"), FLIP("Flip") }
+
+@Serializable
+enum class DrawerSort(val label: String) { AZ("A\u2013Z"), MOST_USED("Most used"), RECENT("Recently used") }
+
+@Serializable
+enum class DrawerBackground(val label: String) { DARK("Dark"), PALETTE("Palette"), GRADIENT("Gradient"), GLASS("Glass") }
+
 @Serializable
 enum class ShadeLayout(val label: String) { ROW("Compact row"), GRID("Grid") }
 
@@ -191,6 +201,11 @@ data class LauncherSettings(
     val iconShape: IconShape = IconShape.SQUIRCLE,
     val iconPack: String? = null,
     val pageIndicator: Boolean = true,
+    val labelFont: PanelFont = PanelFont.DEFAULT,
+    val labelBold: Boolean = false,
+    val labelShadow: Boolean = true,
+    val pageEffect: PageEffect = PageEffect.SLIDE,
+    val homeSidePaddingDp: Int = 6,
     val lockLayout: Boolean = false,
     // Motion
     val animations: Boolean = true,
@@ -221,6 +236,10 @@ data class LauncherSettings(
     val drawerShowSuggestions: Boolean = true,
     val drawerAutoFocusSearch: Boolean = false,
     val drawerFastScroll: Boolean = true,
+    val drawerSort: DrawerSort = DrawerSort.AZ,
+    val drawerIconSizeDp: Int = 0, // 0 = same as home
+    val drawerLabels: Boolean = true,
+    val drawerBackground: DrawerBackground = DrawerBackground.DARK,
     // Theme
     val themeMode: ThemeMode = ThemeMode.PALETTE,
     // Palette (ThemeForge format)

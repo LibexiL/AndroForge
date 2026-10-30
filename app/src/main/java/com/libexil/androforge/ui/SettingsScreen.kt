@@ -231,7 +231,14 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                         ) { c -> set { it.copy(labelColor = c) } }
                     }
                 }
+                if (s.showLabels) {
+                    item { Choice("Label font", com.libexil.androforge.data.PanelFont.entries, s.labelFont, { it.label }) { v -> set { it.copy(labelFont = v) } } }
+                    item { SwitchRow("Bold labels", s.labelBold) { v -> set { it.copy(labelBold = v) } } }
+                    item { SwitchRow("Label shadow", s.labelShadow, "Keeps labels readable on bright wallpapers") { v -> set { it.copy(labelShadow = v) } } }
+                }
                 item { SwitchRow("Page indicator", s.pageIndicator) { v -> set { it.copy(pageIndicator = v) } } }
+                item { Choice("Page swipe effect", com.libexil.androforge.data.PageEffect.entries, s.pageEffect, { it.label }) { v -> set { it.copy(pageEffect = v) } } }
+                item { IntSlider("Side margins", s.homeSidePaddingDp, 0..32, suffix = "dp") { v -> set { it.copy(homeSidePaddingDp = v) } } }
                 item {
                     SwitchRow("Lock layout", s.lockLayout, "Stops icons from being moved or removed by accident") { v ->
                         set { it.copy(lockLayout = v) }
@@ -365,6 +372,14 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                 if (page == SettingsPage.DRAWER) {
                 item(key = "section:App drawer") { Section("App drawer") }
                 item { IntSlider("Columns", s.drawerColumns, 3..7) { v -> set { it.copy(drawerColumns = v) } } }
+                item { Choice("Sort apps", com.libexil.androforge.data.DrawerSort.entries, s.drawerSort, { it.label }) { v -> set { it.copy(drawerSort = v) } } }
+                item {
+                    IntSlider("Icon size", s.drawerIconSizeDp, 0..76, formatter = { v -> if (v < 30) "Same as home" else "${v}dp" }) { v ->
+                        set { it.copy(drawerIconSizeDp = if (v < 30) 0 else v) }
+                    }
+                }
+                item { SwitchRow("Labels in the drawer", s.drawerLabels) { v -> set { it.copy(drawerLabels = v) } } }
+                item { Choice("Background", com.libexil.androforge.data.DrawerBackground.entries, s.drawerBackground, { it.label }) { v -> set { it.copy(drawerBackground = v) } } }
                 item {
                     FloatSlider("Background opacity", s.drawerOpacity, 0.3f..1f, { "${(it * 100).roundToInt()}%" }) { v ->
                         set { it.copy(drawerOpacity = v) }
