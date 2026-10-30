@@ -801,26 +801,16 @@ private fun NotificationStack(group: List<NotifEntry>, pal: Pal, hl: Color, open
         label = "stack",
     ) { isOpen ->
         if (!isOpen) {
-            // Collapsed: the newest one on top, the rest peeking out underneath.
-            Box(Modifier.fillMaxWidth().padding(top = 6.dp)) {
-                val behind = (group.size - 1).coerceAtMost(2)
-                for (k in behind downTo 1) {
-                    Box(
-                        Modifier
-                            .matchParentSize()
-                            .padding(start = (k * 10).dp, end = (k * 10).dp)
-                            .graphicsLayer { translationY = (k * 6).dp.toPx() }
-                            .clip(RoundedCornerShape(18.dp))
-                            .background(fg.copy(alpha = 0.05f + 0.02f * (3 - k))),
-                    )
-                }
+            // Collapsed: the newest one on top, the others showing as thin edges underneath
+            // (inside the stack's own space, so nothing overlaps the next notification).
+            val behind = (group.size - 1).coerceAtMost(2)
+            val cardColor = androidx.compose.ui.graphics.lerp(pal.background, fg, 0.09f)
+            Column(Modifier.fillMaxWidth().padding(top = 6.dp)) {
                 Column(
                     Modifier
                         .fillMaxWidth()
-                        .padding(bottom = (behind * 6).dp)
                         .clip(RoundedCornerShape(18.dp))
-                        .background(pal.background.copy(alpha = 0.55f))
-                        .background(fg.copy(alpha = 0.08f))
+                        .background(cardColor)
                         .clickable { onToggle(pkg) }
                         .padding(10.dp),
                 ) {
@@ -832,6 +822,7 @@ private fun NotificationStack(group: List<NotifEntry>, pal: Pal, hl: Color, open
                             Text(top.title, color = fg, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             if (top.text.isNotBlank()) Text(top.text, color = fg.copy(alpha = 0.75f), fontSize = 12.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
+                        Spacer(Modifier.width(8.dp))
                         Text(
                             "${group.size}", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold,
                             modifier = Modifier.clip(RoundedCornerShape(50)).background(hl).padding(horizontal = 9.dp, vertical = 3.dp),
@@ -840,6 +831,16 @@ private fun NotificationStack(group: List<NotifEntry>, pal: Pal, hl: Color, open
                     Text(
                         "+${group.size - 1} more \u2022 tap to see all", color = pal.muted, fontSize = 11.sp,
                         modifier = Modifier.padding(start = 44.dp, top = 4.dp),
+                    )
+                }
+                for (k in 1..behind) {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = (k * 12).dp)
+                            .height(5.dp)
+                            .clip(RoundedCornerShape(bottomStart = 10.dp, bottomEnd = 10.dp))
+                            .background(androidx.compose.ui.graphics.lerp(pal.background, fg, 0.09f - k * 0.025f)),
                     )
                 }
             }
