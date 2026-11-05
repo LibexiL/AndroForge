@@ -1,5 +1,7 @@
 package com.libexil.androforge.island
 
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.foundation.gestures.draggable
 import android.accessibilityservice.AccessibilityService
 import android.content.Context
 import android.content.Intent
@@ -800,7 +802,8 @@ private fun NotificationStack(group: List<NotifEntry>, pal: Pal, hl: Color, open
         },
         label = "stack",
     ) { isOpen ->
-        if (!isOpen) {
+        if (!isOpen) SwipeAway(enabled = group.any { it.clearable }, onDismiss = { group.filter { it.clearable }.forEach { NotifHub.dismiss(it.key) } }) {
+            val now = rememberNow(false)
             // Collapsed: the newest one on top, the others showing as thin edges underneath
             // (inside the stack's own space, so nothing overlaps the next notification).
             val behind = (group.size - 1).coerceAtMost(2)
@@ -818,7 +821,7 @@ private fun NotificationStack(group: List<NotifEntry>, pal: Pal, hl: Color, open
                         NotifAvatar(top, pal, 34.dp)
                         Spacer(Modifier.width(10.dp))
                         Column(Modifier.weight(1f)) {
-                            Text(top.appName, color = pal.muted, fontSize = 10.5.sp, maxLines = 1)
+                            Text(top.appName + notifTime(top.postTime, now).let { if (it.isEmpty()) "" else " \u00b7 $it" }, color = pal.muted, fontSize = 10.5.sp, maxLines = 1)
                             Text(top.title, color = fg, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             if (top.text.isNotBlank()) Text(top.text, color = fg.copy(alpha = 0.75f), fontSize = 12.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
@@ -879,10 +882,73 @@ private fun NotifAvatar(e: NotifEntry, pal: Pal, size: Dp) {
     }
 }
 
+/** "now", "5m", "3h", then the time, "Yesterday" or the date. */
+fun notifTime(t: Long, now: Long): String {
+    if (t <= 0) return ""
+    val d = (now - t).coerceAtLeast(0)
+    val min = d / 60_000
+    return when {
+        min < 1 -> "now"
+        min < 60 -> "${min}m"
+        min < 6 * 60 -> "${min / 60}h"
+        android.text.format.DateUtils.isToday(t) -> SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(t))
+        android.text.format.DateUtils.isToday(t + 86_400_000L) -> "Yesterday"
+        else -> SimpleDateFormat("EEE d MMM", Locale.getDefault()).format(Date(t))
+    }
+}
+
+/**
+ * Swipe left or right to dismiss. Past a third of the width (or a quick flick) the card
+ * slides off and [onDismiss] runs; otherwise it springs back.
+ */
+@Composable
+fun SwipeAway(enabled: Boolean, onDismiss: () -> Unit, content: @Composable () -> Unit) {
+    if (!enabled) {
+        content()
+        return
+    }
+    val scope = rememberCoroutineScope()
+    val offset = remember { Animatable(0f) }
+    var width by remember { mutableFloatStateOf(1f) }
+    val dismiss by androidx.compose.runtime.rememberUpdatedState(onDismiss)
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .onSizeChanged { width = it.width.toFloat().coerceAtLeast(1f) }
+            .graphicsLayer {
+                translationX = offset.value
+                alpha = (1f - kotlin.math.abs(offset.value) / width * 1.3f).coerceIn(0f, 1f)
+            }
+            .draggable(
+                orientation = androidx.compose.foundation.gestures.Orientation.Horizontal,
+                state = androidx.compose.foundation.gestures.rememberDraggableState { d -> scope.launch { offset.snapTo(offset.value + d) } },
+                onDragStopped = { v ->
+                    val far = kotlin.math.abs(offset.value) > width / 3f
+                    val fling = kotlin.math.abs(v) > 1800f && kotlin.math.sign(v) == kotlin.math.sign(offset.value)
+                    if (far || fling) {
+                        val dir = if (offset.value != 0f) kotlin.math.sign(offset.value) else kotlin.math.sign(v)
+                        offset.animateTo(dir * width * 1.2f, androidx.compose.animation.core.tween(180))
+                        dismiss()
+                    } else {
+                        offset.animateTo(0f, androidx.compose.animation.core.spring(dampingRatio = 0.7f, stiffness = 600f))
+                    }
+                },
+            ),
+    ) { content() }
+}
+
 @Composable
 private fun ShadeNotification(e: NotifEntry, pal: Pal, actions: ShadeActions) {
+    SwipeAway(enabled = e.clearable, onDismiss = { NotifHub.dismiss(e.key) }) {
+        ShadeNotificationCard(e, pal, actions)
+    }
+}
+
+@Composable
+private fun ShadeNotificationCard(e: NotifEntry, pal: Pal, actions: ShadeActions) {
     val context = LocalContext.current
     val fg = pal.foreground
+    val now = rememberNow(false)
     Column(
         Modifier
             .fillMaxWidth()
@@ -907,7 +973,7 @@ private fun ShadeNotification(e: NotifEntry, pal: Pal, actions: ShadeActions) {
             }
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
-                Text(e.appName, color = pal.muted, fontSize = 10.5.sp, maxLines = 1)
+                Text(e.appName + notifTime(e.postTime, now).let { if (it.isEmpty()) "" else " \u00b7 $it" }, color = pal.muted, fontSize = 10.5.sp, maxLines = 1)
                 Text(e.title, color = fg, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (e.text.isNotBlank()) Text(e.text, color = fg.copy(alpha = 0.75f), fontSize = 12.5.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }

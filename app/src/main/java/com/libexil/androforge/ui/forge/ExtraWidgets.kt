@@ -474,10 +474,7 @@ fun NotifsWidget(item: ForgeWidgetItem, pal: Pal, actions: ForgeActions) {
                     Text(e.title, color = pal.foreground, fontSize = ts(12.5f), fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     if (e.text.isNotBlank()) Text(e.text, color = pal.muted, fontSize = ts(11.5f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                Text(
-                    SimpleDateFormat("h:mm", Locale.getDefault()).format(Date(e.postTime)),
-                    color = pal.muted, fontSize = ts(10f),
-                )
+                Text(com.libexil.androforge.island.notifTime(e.postTime, rememberNow(false)), color = pal.muted, fontSize = ts(10f))
             }
         }
     }
