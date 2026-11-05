@@ -95,7 +95,15 @@ class LockService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         val e = event ?: return
-        if (e.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || e.packageName != "com.android.systemui") return
+        if (e.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
+        val pkg = e.packageName?.toString()
+        // Another app or the recents screen came to the front (e.g. the home/recents gesture):
+        // AndroForge's shade shouldn't stay floating over it.
+        val geo = com.libexil.androforge.island.activeIslandGeo
+        if (geo != null && geo.shadeOpen.value && !geo.shadeFocus.value && pkg != null && pkg != packageName && pkg != "com.android.systemui") {
+            geo.shadeOpen.value = false
+        }
+        if (pkg != "com.android.systemui") return
         // SystemUI also shows the volume panel, power menu, recents... only react to the shade.
         val words = (e.text.joinToString(" ") + " " + (e.contentDescription ?: "") + " " + (e.className ?: "")).lowercase()
         val isShade = listOf("notification shade", "quick settings", "quick panel", "notification panel", "notificationshade", "notifications", "panel").any { it in words } &&

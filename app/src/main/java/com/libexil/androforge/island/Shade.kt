@@ -1,5 +1,6 @@
 package com.libexil.androforge.island
 
+import androidx.compose.animation.animateContentSize
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.foundation.gestures.draggable
 import android.accessibilityservice.AccessibilityService
@@ -848,7 +849,7 @@ private fun NotificationStack(group: List<NotifEntry>, pal: Pal, hl: Color, open
                 }
             }
         } else {
-            Column(Modifier.fillMaxWidth().padding(top = 6.dp)) {
+            Column(Modifier.fillMaxWidth().padding(top = 6.dp).animateContentSize()) {
                 Row(Modifier.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(top.appName, color = fg, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                     if (group.any { it.clearable }) {
@@ -939,8 +940,11 @@ fun SwipeAway(enabled: Boolean, onDismiss: () -> Unit, content: @Composable () -
 
 @Composable
 private fun ShadeNotification(e: NotifEntry, pal: Pal, actions: ShadeActions) {
-    SwipeAway(enabled = e.clearable, onDismiss = { NotifHub.dismiss(e.key) }) {
-        ShadeNotificationCard(e, pal, actions)
+    // Keyed by the notification itself, so a swiped-away card's state never carries over to the next one.
+    androidx.compose.runtime.key(e.key) {
+        SwipeAway(enabled = e.clearable, onDismiss = { NotifHub.dismiss(e.key) }) {
+            ShadeNotificationCard(e, pal, actions)
+        }
     }
 }
 

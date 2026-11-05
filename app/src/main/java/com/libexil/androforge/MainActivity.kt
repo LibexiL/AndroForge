@@ -288,6 +288,7 @@ class MainActivity : ComponentActivity(), LauncherHost {
         super.onResume()
         vm.maybeAutoCheck()
         vm.resumeWallpaperMatch()
+        closeShade()
         (application as LauncherApp).onWallpaperMaybeChanged()
         if (!LockService.isRunning && vm.state.value.settings.shake != com.libexil.androforge.data.GestureAction.NONE) shake.start()
         // Coming back from a settings screen may have changed access.
@@ -312,8 +313,14 @@ class MainActivity : ComponentActivity(), LauncherHost {
         vm.maybeAutoBackup()
     }
 
+    /** Going home (the home gesture or button) always closes AndroForge's pull-down shade. */
+    private fun closeShade() {
+        com.libexil.androforge.island.activeIslandGeo?.let { if (it.shadeOpen.value) it.shadeOpen.value = false }
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        if (intent.action == Intent.ACTION_MAIN) closeShade()
         handleIntent(intent, fresh = false)
     }
 
