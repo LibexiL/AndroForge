@@ -188,6 +188,8 @@ fun LauncherScreen(vm: LauncherViewModel, host: LauncherHost) {
     val drawer = remember { DrawerController(scope) }
     val pagerState = rememberPagerState { state.pageCount }
     val motion = remember(settings.animations, settings.animScale, settings.animBounce) { Motion.of(settings) }
+    val launchDepth = remember { androidx.compose.animation.core.Animatable(0f) }
+    val homeEnter = remember { androidx.compose.animation.core.Animatable(1f) }
     SideEffect { drawer.motion = motion }
     val context = LocalContext.current
     val density = LocalDensity.current
@@ -216,6 +218,19 @@ fun LauncherScreen(vm: LauncherViewModel, host: LauncherHost) {
             when (e) {
                 UiEvent.OpenDrawer -> drawer.open()
                 UiEvent.CloseDrawer -> drawer.close()
+                UiEvent.AppLaunched -> if (vm.state.value.settings.launchDepth && vm.state.value.settings.animations) {
+                    launch {
+                        launchDepth.animateTo(1f, androidx.compose.animation.core.tween((300 * motion.scale).toInt().coerceAtLeast(1), easing = androidx.compose.animation.core.FastOutSlowInEasing))
+                    }
+                }
+                is UiEvent.HomeReturn -> launch {
+                    launchDepth.snapTo(0f)
+                    val st = vm.state.value.settings
+                    if (e.rebuild && st.animations && st.homeEnter != com.libexil.androforge.data.HomeEnter.OFF) {
+                        homeEnter.snapTo(0f)
+                        homeEnter.animateTo(1f, androidx.compose.animation.core.tween((760 * motion.scale).toInt().coerceAtLeast(1), easing = androidx.compose.animation.core.LinearEasing))
+                    }
+                }
                 is UiEvent.Gesture -> perform(e.slot)
                 is UiEvent.ScrollToPage -> if (e.page < pagerState.pageCount) {
                     pagerState.animateScrollToPage(e.page, animationSpec = motion.spring(stiffness = 300f, bouncy = false))
@@ -245,7 +260,9 @@ fun LauncherScreen(vm: LauncherViewModel, host: LauncherHost) {
     val notifCounts = remember(notifEntries) {
         notifEntries.filter { it.clearable && it.call == com.libexil.androforge.live.CallState.NONE }.groupingBy { it.pkg }.eachCount()
     }
+    val homeEnterState = remember(settings.homeEnter) { HomeEnterState(homeEnter.asState(), settings.homeEnter) }
     CompositionLocalProvider(
+        LocalHomeEnter provides homeEnterState,
         LocalNotifCounts provides notifCounts,
         LocalSettings provides settings,
         LocalIconOverrides provides state.icons,
@@ -255,7 +272,20 @@ fun LauncherScreen(vm: LauncherViewModel, host: LauncherHost) {
         LocalMotion provides motion,
     ) {
         AndroForgeTheme(accent) {
-            BoxWithConstraints(Modifier.fillMaxSize()) {
+            BoxWithConstraints(
+                Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        // Sinks back a little as an app opens over it.
+                        val d = launchDepth.value
+                        if (d > 0f) {
+                            val s = 1f - 0.07f * d
+                            scaleX = s
+                            scaleY = s
+                            alpha = 1f - 0.45f * d
+                        }
+                    },
+            ) {
                 drawer.heightPx = constraints.maxHeight.toFloat().coerceAtLeast(1f)
                 val swipeThreshold = with(density) { 90.dp.toPx() }
 
@@ -646,6 +676,10 @@ private fun HomePage(
                     Modifier
                         .offset(x = cellW * item.x, y = cellH * item.y)
                         .size(width = cellW * item.spanX, height = cellH * item.spanY)
+                        .homeEnter(
+                            (item.x + item.spanX / 2f) / columnsForEnter(state),
+                            if (page == BELOW_DOCK) 1f else ((item.y + item.spanY / 2f) / rows.coerceAtLeast(1)) * 0.82f,
+                        )
                         .graphicsLayer { alpha = a },
                 ) {
                     when (item) {
@@ -1084,3 +1118,5 @@ private fun Modifier.multiFingerGestures(
 private suspend fun androidx.compose.ui.input.pointer.AwaitPointerEventScope.awaitFirstDownAnyPass() {
     awaitFirstDown(requireUnconsumed = false, pass = androidx.compose.ui.input.pointer.PointerEventPass.Initial)
 }
+
+private fun columnsForEnter(state: LauncherState): Float = state.settings.columns.coerceAtLeast(1).toFloat()

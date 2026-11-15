@@ -337,6 +337,7 @@ fun Dock(
                 key(entry.key) {
                     val hidden = drag.active && entry is DockEntry.Pinned &&
                         drag.source is DragSource.Dock && drag.item?.id == entry.item.id
+                    Box(Modifier.homeEnter(if (entries.size > 1) i / (entries.size - 1f) else 0.5f, 1f)) {
                     DockSlot(
                         entry = entry,
                         appsById = appsById,
@@ -352,6 +353,7 @@ fun Dock(
                             drag.dockSlots = rects.take(pinned.size).filterNotNull()
                         },
                     )
+                    }
                 }
             }
         }

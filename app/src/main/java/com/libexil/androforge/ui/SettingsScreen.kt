@@ -251,6 +251,38 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                 item { SwitchRow("Animations", s.animations, "Turn off for instant, no-motion transitions") { v -> set { it.copy(animations = v) } } }
                 item { SwitchRow("Stretchy scrolling", s.stretchScroll, "Lists stretch and spring back when you reach the end") { v -> set { it.copy(stretchScroll = v) } } }
                 if (s.animations) {
+                    item { Choice("Opening apps", com.libexil.androforge.data.OpenAnim.entries, s.openAnim, { it.label }) { v -> set { it.copy(openAnim = v) } } }
+                    item {
+                        Hint(
+                            when (s.openAnim) {
+                                com.libexil.androforge.data.OpenAnim.ZOOM -> "The app grows out of the exact icon you tapped."
+                                com.libexil.androforge.data.OpenAnim.REVEAL -> "The app pours out of the icon as an expanding window."
+                                com.libexil.androforge.data.OpenAnim.DEPTH -> "You fly forward through the home screen into the app."
+                                com.libexil.androforge.data.OpenAnim.RISE -> "The app glides up while the home screen sinks away."
+                                com.libexil.androforge.data.OpenAnim.POP -> "The app pops open with a little spring."
+                                com.libexil.androforge.data.OpenAnim.FADE -> "A soft cross-fade."
+                                com.libexil.androforge.data.OpenAnim.NONE -> "Apps appear instantly."
+                            },
+                        )
+                    }
+                    item { SwitchRow("Home sinks back", s.launchDepth, "The home screen recedes as an app opens over it") { v -> set { it.copy(launchDepth = v) } } }
+                    item { Choice("Coming home", com.libexil.androforge.data.HomeEnter.entries, s.homeEnter, { it.label }) { v -> set { it.copy(homeEnter = v) } } }
+                    item {
+                        Hint(
+                            when (s.homeEnter) {
+                                com.libexil.androforge.data.HomeEnter.WAVE -> "Icons and widgets rebuild in a ripple from the middle, coming into focus as they land."
+                                com.libexil.androforge.data.HomeEnter.BLOOM -> "Everything blooms in from the edges toward the center, with a little twist."
+                                com.libexil.androforge.data.HomeEnter.RISE -> "Rows rise up from the dock, bottom first."
+                                com.libexil.androforge.data.HomeEnter.CASCADE -> "Items flip down into place, corner to corner."
+                                com.libexil.androforge.data.HomeEnter.ZOOM -> "The whole home screen settles into focus at once."
+                                com.libexil.androforge.data.HomeEnter.OFF -> "The home screen just appears."
+                            },
+                        )
+                    }
+                    item { Choice("Pull-down shade", com.libexil.androforge.data.ShadeAnim.entries, s.shadeAnim, { it.label }) { v -> set { it.copy(shadeAnim = v) } } }
+                    item {
+                        SystemSpeedRow(context)
+                    }
                     item {
                         val presets = listOf(
                             Triple("Snappy", 0.6f, 0.12f),
@@ -1320,4 +1352,54 @@ private fun pageIcon(p: SettingsPage): androidx.compose.ui.graphics.vector.Image
     SettingsPage.GESTURES -> Icons.Default.ThumbUp
     SettingsPage.MOTION -> Icons.Default.PlayArrow
     SettingsPage.SYSTEM -> Icons.Default.Settings
+}
+
+
+/** Android's own animation speed (the three Developer-options scales), set in one go. */
+@Composable
+private fun SystemSpeedRow(context: android.content.Context) {
+    val cr = context.contentResolver
+    val canWrite = remember { com.libexil.androforge.live.SystemOverride.canWrite(context) }
+    var scale by remember {
+        androidx.compose.runtime.mutableFloatStateOf(
+            runCatching { android.provider.Settings.Global.getFloat(cr, android.provider.Settings.Global.TRANSITION_ANIMATION_SCALE) }.getOrDefault(1f),
+        )
+    }
+    Column(Modifier.padding(horizontal = 20.dp, vertical = 6.dp)) {
+        Row {
+            Text("Android animation speed", fontSize = 15.sp, modifier = Modifier.weight(1f))
+            Text(
+                when {
+                    scale == 0f -> "Off"
+                    scale <= 0.5f -> "Fast (${scale}x)"
+                    scale < 1f -> "Quick (${scale}x)"
+                    scale == 1f -> "Normal"
+                    else -> "Slow (${scale}x)"
+                },
+                fontSize = 14.sp, color = MaterialTheme.colorScheme.primary,
+            )
+        }
+        Text("Speeds up or slows down every animation on the phone, apps included.", fontSize = 12.sp, color = Color.White.copy(alpha = 0.55f))
+        if (!canWrite) {
+            Text("Needs the adb permission from \u201cOverride Android's bar\u201d.", fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
+        } else {
+            val steps = listOf(0f, 0.25f, 0.5f, 0.75f, 1f, 1.5f, 2f)
+            Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                steps.forEach { v ->
+                    androidx.compose.material3.FilterChip(
+                        selected = scale == v,
+                        onClick = {
+                            scale = v
+                            listOf(
+                                android.provider.Settings.Global.WINDOW_ANIMATION_SCALE,
+                                android.provider.Settings.Global.TRANSITION_ANIMATION_SCALE,
+                                android.provider.Settings.Global.ANIMATOR_DURATION_SCALE,
+                            ).forEach { key -> runCatching { android.provider.Settings.Global.putFloat(cr, key, v) } }
+                        },
+                        label = { Text(if (v == 0f) "Off" else "${v}x".replace(".0x", "x"), fontSize = 12.sp) },
+                    )
+                }
+            }
+        }
+    }
 }

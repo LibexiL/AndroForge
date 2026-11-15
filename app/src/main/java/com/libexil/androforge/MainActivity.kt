@@ -142,6 +142,27 @@ class MainActivity : ComponentActivity(), LauncherHost {
         }
     }
 
+    override fun launchOptions(bounds: android.graphics.Rect?): android.os.Bundle? {
+        val s = vm.state.value.settings
+        if (!s.animations) return null
+        val root = window.decorView
+        val b = bounds
+        val opts = when (s.openAnim) {
+            com.libexil.androforge.data.OpenAnim.ZOOM ->
+                if (b != null) android.app.ActivityOptions.makeScaleUpAnimation(root, b.left, b.top, b.width(), b.height())
+                else android.app.ActivityOptions.makeCustomAnimation(this, R.anim.af_depth_enter, R.anim.af_depth_exit)
+            com.libexil.androforge.data.OpenAnim.REVEAL ->
+                if (b != null) android.app.ActivityOptions.makeClipRevealAnimation(root, b.left, b.top, b.width(), b.height())
+                else android.app.ActivityOptions.makeCustomAnimation(this, R.anim.af_fade_in, R.anim.af_fade_out)
+            com.libexil.androforge.data.OpenAnim.DEPTH -> android.app.ActivityOptions.makeCustomAnimation(this, R.anim.af_depth_enter, R.anim.af_depth_exit)
+            com.libexil.androforge.data.OpenAnim.RISE -> android.app.ActivityOptions.makeCustomAnimation(this, R.anim.af_rise_enter, R.anim.af_rise_exit)
+            com.libexil.androforge.data.OpenAnim.POP -> android.app.ActivityOptions.makeCustomAnimation(this, R.anim.af_pop_enter, R.anim.af_fade_out)
+            com.libexil.androforge.data.OpenAnim.FADE -> android.app.ActivityOptions.makeCustomAnimation(this, R.anim.af_fade_in, R.anim.af_fade_out)
+            com.libexil.androforge.data.OpenAnim.NONE -> android.app.ActivityOptions.makeCustomAnimation(this, R.anim.af_none, R.anim.af_none)
+        }
+        return opts.toBundle()
+    }
+
     override fun pickWidgetPhoto(itemId: String) {
         widgetPhotoFor = itemId
         pickWidgetImage.launch(androidx.activity.result.PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
@@ -284,8 +305,13 @@ class MainActivity : ComponentActivity(), LauncherHost {
         }
     }
 
+    /** True after an app covered the launcher; the next resume plays the "home rebuilding" animation. */
+    private var wentAway = false
+
     override fun onResume() {
         super.onResume()
+        vm.emit(UiEvent.HomeReturn(rebuild = wentAway))
+        wentAway = false
         vm.maybeAutoCheck()
         vm.resumeWallpaperMatch()
         closeShade()
@@ -305,6 +331,7 @@ class MainActivity : ComponentActivity(), LauncherHost {
 
     override fun onStop() {
         super.onStop()
+        wentAway = !isChangingConfigurations
         try {
             widgetHost.stopListening()
         } catch (_: Exception) {

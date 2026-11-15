@@ -130,13 +130,31 @@ fun ShadeContent(service: AccessibilityService, geo: IslandGeometry, onRemove: (
     val motion = remember(s.animations, s.animScale, s.animBounce) { Motion.of(s) }
     val progress = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
-    LaunchedEffect(Unit) { progress.animateTo(1f, motion.spring(stiffness = 480f)) }
+    LaunchedEffect(Unit) {
+        if (!s.animations) {
+            progress.snapTo(1f)
+        } else {
+            progress.animateTo(
+                1f,
+                when (s.shadeAnim) {
+                    com.libexil.androforge.data.ShadeAnim.DROP -> androidx.compose.animation.core.spring(dampingRatio = 0.62f, stiffness = 340f / motion.scale.coerceAtLeast(0.2f))
+                    com.libexil.androforge.data.ShadeAnim.MORPH -> androidx.compose.animation.core.spring(dampingRatio = 0.86f, stiffness = 300f / motion.scale.coerceAtLeast(0.2f))
+                    else -> androidx.compose.animation.core.tween((420 * motion.scale).toInt().coerceAtLeast(1), easing = androidx.compose.animation.core.FastOutSlowInEasing)
+                },
+            )
+        }
+    }
     LaunchedEffect(geo.shadeOpen.value) {
         if (!geo.shadeOpen.value) {
-            progress.animateTo(0f, motion.tween(170))
+            progress.animateTo(0f, androidx.compose.animation.core.tween((210 * motion.scale).toInt().coerceAtLeast(1), easing = androidx.compose.animation.core.FastOutLinearInEasing))
             onRemove()
         }
     }
+    val reveal = remember(s.shadeAnim) { ShadeReveal(progress.asState(), s.shadeAnim) }
+    val dens = androidx.compose.ui.platform.LocalDensity.current
+    val islandW = with(dens) { s.islandWidthDp.dp.toPx() }
+    val islandH = with(dens) { s.islandHeightDp.dp.toPx() }
+    val cornerPx = with(dens) { s.shadeCorner.dp.toPx() }
     fun closeShade() {
         geo.shadeOpen.value = false
     }
@@ -214,6 +232,7 @@ fun ShadeContent(service: AccessibilityService, geo: IslandGeometry, onRemove: (
                 )
             },
     ) {
+        androidx.compose.runtime.CompositionLocalProvider(LocalShadeReveal provides reveal) {
         ShadeView(
             s, pal, actions,
             Modifier
@@ -221,13 +240,53 @@ fun ShadeContent(service: AccessibilityService, geo: IslandGeometry, onRemove: (
                 .nestedScroll(closeOnSwipe)
                 .graphicsLayer {
                     val p = progress.value
-                    translationY = -(1f - p) * 260.dp.toPx() + dragged
-                    alpha = (1f + dragged / 600f).coerceIn(0.4f, 1f)
-                    scaleY = 0.92f + 0.08f * p
+                    val pc = p.coerceIn(0f, 1f)
+                    val dragFade = (1f + dragged / 600f).coerceIn(0.4f, 1f)
                     transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0f)
+                    when (s.shadeAnim) {
+                        com.libexil.androforge.data.ShadeAnim.MORPH -> {
+                            // The panel is the island stretching open: a pill the island's size that
+                            // widens first, then pours down to full height, corners easing as it goes.
+                            val wT = (pc / 0.55f).coerceIn(0f, 1f)
+                            val hT = ((p - 0.12f) / 0.88f).coerceAtLeast(0f)
+                            val w = islandW + (size.width - islandW) * cubicOut(wT)
+                            val h = islandH + (size.height - islandH) * hT
+                            val r = (islandH / 2f) + (cornerPx - islandH / 2f) * pc
+                            clip = true
+                            shape = androidx.compose.foundation.shape.GenericShape { sz, _ ->
+                                val left = (sz.width - w) / 2f
+                                addRoundRect(
+                                    androidx.compose.ui.geometry.RoundRect(
+                                        left, 0f, left + w, h.coerceAtMost(sz.height * 1.04f),
+                                        androidx.compose.ui.geometry.CornerRadius(r, r),
+                                    ),
+                                )
+                            }
+                            translationY = -(1f - pc) * (sb.toPx() * 0.6f) + dragged
+                            alpha = (pc * 5f).coerceAtMost(1f) * dragFade
+                        }
+                        com.libexil.androforge.data.ShadeAnim.UNFOLD -> {
+                            cameraDistance = 16f * density
+                            rotationX = (1f - pc) * -75f
+                            translationY = dragged
+                            alpha = (pc * 1.6f).coerceAtMost(1f) * dragFade
+                        }
+                        com.libexil.androforge.data.ShadeAnim.DROP -> {
+                            translationY = -(1f - p) * 320.dp.toPx() + dragged
+                            alpha = (pc * 2f).coerceAtMost(1f) * dragFade
+                        }
+                        com.libexil.androforge.data.ShadeAnim.FADE -> {
+                            val k = 0.92f + 0.08f * pc
+                            scaleX = k
+                            scaleY = k
+                            translationY = dragged
+                            alpha = pc * dragFade
+                        }
+                    }
                 }
                 .pointerInput(Unit) { detectTapGestures { } },
         )
+        }
     }
 }
 
@@ -274,7 +333,7 @@ fun ShadeView(s: LauncherSettings, pal: Pal, actions: ShadeActions, modifier: Mo
             .padding(horizontal = 14.dp, vertical = 12.dp),
     ) {
         // Header: one compact line.
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.shadeItem(0), verticalAlignment = Alignment.CenterVertically) {
             Text(SimpleDateFormat("h:mm", Locale.getDefault()).format(Date(now)), color = fg, fontSize = 22.sp, fontWeight = FontWeight.Medium)
             Spacer(Modifier.width(8.dp))
             Text(SimpleDateFormat("EEE, d MMM", Locale.getDefault()).format(Date(now)), color = muted, fontSize = 13.sp, modifier = Modifier.weight(1f))
@@ -303,7 +362,7 @@ fun ShadeView(s: LauncherSettings, pal: Pal, actions: ShadeActions, modifier: Mo
 
         if (row) {
             // Wi-Fi and Bluetooth get big buttons that show what you're connected to.
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.shadeItem(1), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ConnectionCard(ShadeTile.WIFI, pal, hlBrush, preview, Modifier.weight(1f)) { sub = ShadeTile.WIFI }
                 ConnectionCard(ShadeTile.BLUETOOTH, pal, hlBrush, preview, Modifier.weight(1f)) { sub = ShadeTile.BLUETOOTH }
             }
@@ -312,6 +371,7 @@ fun ShadeView(s: LauncherSettings, pal: Pal, actions: ShadeActions, modifier: Mo
                 Spacer(Modifier.height(10.dp))
                 Row(
                     Modifier
+                        .shadeItem(2)
                         .fillMaxWidth()
                         .horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -335,11 +395,11 @@ fun ShadeView(s: LauncherSettings, pal: Pal, actions: ShadeActions, modifier: Mo
         // Brightness & volume
         if (s.shadeBrightness) {
             Spacer(Modifier.height(10.dp))
-            BrightnessRow(pal, hl, actions, preview)
+            Box(Modifier.shadeItem(3)) { BrightnessRow(pal, hl, actions, preview) }
         }
         if (s.shadeVolume) {
             Spacer(Modifier.height(6.dp))
-            VolumeRow(pal, hl, actions, preview)
+            Box(Modifier.shadeItem(4)) { VolumeRow(pal, hl, actions, preview) }
         }
 
         // Media
@@ -349,6 +409,7 @@ fun ShadeView(s: LauncherSettings, pal: Pal, actions: ShadeActions, modifier: Mo
                 Spacer(Modifier.height(10.dp))
                 Row(
                     Modifier
+                        .shadeItem(5)
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(18.dp))
                         .background(fg.copy(alpha = 0.07f))
@@ -374,7 +435,7 @@ fun ShadeView(s: LauncherSettings, pal: Pal, actions: ShadeActions, modifier: Mo
         val entries by NotifHub.entries.collectAsState()
         val list = entries.take(if (preview) 2 else 40)
         Spacer(Modifier.height(12.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.shadeItem(6), verticalAlignment = Alignment.CenterVertically) {
             Text("NOTIFICATIONS", color = hl, fontSize = 10.5.sp, letterSpacing = 1.6.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
             if (list.any { it.clearable }) {
                 Text(
@@ -389,8 +450,9 @@ fun ShadeView(s: LauncherSettings, pal: Pal, actions: ShadeActions, modifier: Mo
             // Same app = one stack; tap it to fan the notifications out.
             val groups = remember(list) { list.groupBy { it.pkg }.values.toList() }
             var expanded by remember { androidx.compose.runtime.mutableStateOf(setOf<String>()) }
-            groups.forEach { g ->
+            groups.forEachIndexed { gi, g ->
                 androidx.compose.runtime.key(g.first().pkg) {
+                    Box(Modifier.shadeItem(7 + gi)) {
                     if (g.size == 1) {
                         ShadeNotification(g.first(), pal, actions)
                     } else {
@@ -402,6 +464,7 @@ fun ShadeView(s: LauncherSettings, pal: Pal, actions: ShadeActions, modifier: Mo
                         )
                     }
                 }
+                    }
             }
         }
         // Handle: drag up or tap to close.
@@ -999,5 +1062,31 @@ private fun ShadeNotificationCard(e: NotifEntry, pal: Pal, actions: ShadeActions
                 }
             }
         }
+    }
+}
+
+
+/** Drives the shade's opening; its sections read it to settle in one after another. */
+class ShadeReveal(val progress: androidx.compose.runtime.State<Float>, val style: com.libexil.androforge.data.ShadeAnim)
+
+val LocalShadeReveal = androidx.compose.runtime.staticCompositionLocalOf<ShadeReveal?> { null }
+
+private fun cubicOut(t: Float): Float = 1f - (1f - t) * (1f - t) * (1f - t)
+
+/** Section [index] of the shade drifts down into place a beat after the one above it. */
+@Composable
+fun Modifier.shadeItem(index: Int): Modifier {
+    val r = LocalShadeReveal.current ?: return this
+    return this.graphicsLayer {
+        val p = r.progress.value.coerceIn(0f, 1f)
+        if (p >= 1f) return@graphicsLayer
+        val start = 0.18f + index.coerceAtMost(10) * 0.055f
+        val t = ((p - start) / (1f - start).coerceAtLeast(0.05f)).coerceIn(0f, 1f)
+        val e = cubicOut(t)
+        alpha = e
+        translationY = (1f - e) * -14.dp.toPx()
+        val k = 0.96f + 0.04f * e
+        scaleX = k
+        scaleY = k
     }
 }

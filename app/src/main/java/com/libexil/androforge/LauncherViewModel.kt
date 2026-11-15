@@ -67,6 +67,10 @@ sealed interface UiEvent {
     data object CloseDrawer : UiEvent
     data class ScrollToPage(val page: Int) : UiEvent
     data class Gesture(val slot: com.libexil.androforge.data.GestureSlot) : UiEvent
+    /** An app is opening over the launcher. */
+    data object AppLaunched : UiEvent
+    /** You came back to the home screen (play the rebuild animation). */
+    data class HomeReturn(val rebuild: Boolean) : UiEvent
 }
 
 class LauncherViewModel(application: Application) : AndroidViewModel(application) {
@@ -329,7 +333,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     // ---------------------------------------------------------------- apps
 
     fun launch(key: AppKey, bounds: android.graphics.Rect? = null) {
-        repo.launch(key, bounds)
+        val opts = runCatching { host?.launchOptions(bounds) }.getOrNull()
+        if (repo.launch(key, bounds, opts)) emit(UiEvent.AppLaunched)
     }
 
     fun addToHome(key: AppKey) {
@@ -723,5 +728,7 @@ interface LauncherHost {
     fun pickPaletteImage()
     fun pickIconPhoto(key: AppKey)
     fun pickWidgetPhoto(itemId: String)
+    /** ActivityOptions for opening an app with the chosen animation (from [bounds] = the icon). */
+    fun launchOptions(bounds: android.graphics.Rect?): android.os.Bundle?
     fun authenticate(title: String, onSuccess: () -> Unit)
 }

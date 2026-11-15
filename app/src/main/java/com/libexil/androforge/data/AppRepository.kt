@@ -141,12 +141,22 @@ class AppRepository(private val context: Context, private val store: LayoutStore
 
     // ---------------------------------------------------------------- actions
 
-    fun launch(key: AppKey, bounds: Rect? = null): Boolean = try {
-        launcherApps.startMainActivity(ComponentName(key.pkg, key.cls), userOf(key), bounds, null)
+    fun launch(key: AppKey, bounds: Rect? = null, options: android.os.Bundle? = null): Boolean = try {
+        try {
+            launcherApps.startMainActivity(ComponentName(key.pkg, key.cls), userOf(key), bounds, options)
+        } catch (e: Exception) {
+            if (options == null) throw e
+            // Some phones reject a particular animation; open it plainly instead.
+            launcherApps.startMainActivity(ComponentName(key.pkg, key.cls), userOf(key), bounds, null)
+        }
         store.update { s ->
+            val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+            val hours = (s.launchHours[key.id]?.takeIf { it.size == 24 } ?: List(24) { 0 }).toMutableList()
+            hours[hour] = hours[hour] + 1
             s.copy(
                 recents = (listOf(key) + s.recents.filter { it != key }).take(12),
                 launchCounts = s.launchCounts + (key.id to ((s.launchCounts[key.id] ?: 0) + 1)),
+                launchHours = s.launchHours + (key.id to hours),
             )
         }
         true
