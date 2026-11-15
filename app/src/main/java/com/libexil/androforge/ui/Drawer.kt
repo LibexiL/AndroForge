@@ -26,6 +26,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
@@ -408,8 +409,13 @@ fun AppDrawer(
             if (query.isNotBlank()) {
                 item(key = "smart", span = { GridItemSpan(maxLineSpan) }) { SmartResults(query, vm) }
             }
-            items(filtered, key = { "a:" + it.key.id }) { app ->
-                Box(itemAnim(Modifier, this)) { DrawerAppCell(app, labelOf(app), vm, drag, onDragEnd) }
+            itemsIndexed(filtered, key = { _, it -> "a:" + it.key.id }) { i, app ->
+                Box(
+                    itemAnim(Modifier, this).drawerCascade(
+                        i, settings.drawerColumns, { drawer.progress },
+                        enabled = settings.drawerCascade && settings.animations && query.isBlank(),
+                    ),
+                ) { DrawerAppCell(app, labelOf(app), vm, drag, onDragEnd) }
             }
             if (query.isNotBlank()) {
                 item(key = "web", span = { GridItemSpan(maxLineSpan) }) {
@@ -802,13 +808,14 @@ fun FolderOverlay(
                     )
                 }
                 Column(Modifier.onGloballyPositioned { gridRect = it.boundsInRoot() }) {
+                    val rowCount = (shown.size + perRow - 1) / perRow
                     shown.chunked(perRow).forEachIndexed { r, row ->
                         Row(
                             Modifier
                                 .fillMaxWidth()
                                 .then(if (r == 0) Modifier.onSizeChanged { rowHeight = it.height.toFloat() } else Modifier),
                         ) {
-                            row.forEach { key ->
+                            row.forEachIndexed { c, key ->
                                 androidx.compose.runtime.key(key.id) {
                                     val isDragged = draggingHere && src?.app == key
                                 val isTarget = inside && dropIndex >= 0 && shown.indexOf(key) == dropIndex && !isDragged
@@ -822,6 +829,7 @@ fun FolderOverlay(
                                         onDragEnd = { if (!dropInside()) onDragEnd() },
                                         modifier = Modifier
                                             .weight(1f)
+                                            .folderBurst(r * perRow + c, c, r, perRow, rowCount) { appear.value }
                                             .graphicsLayer { alpha = if (isDragged) 0.25f else 1f }
                                             .then(
                                                 if (isTarget) Modifier.clip(RoundedCornerShape(16.dp)).background(tint.copy(alpha = 0.22f)).border(1.5.dp, tint, RoundedCornerShape(16.dp))

@@ -161,12 +161,13 @@ enum class OpenAnim(val label: String) {
 /** How the home screen rebuilds when you come back to it. */
 @Serializable
 enum class HomeEnter(val label: String) {
-    WAVE("Ripple wave"), BLOOM("Bloom"), RISE("Rise up"), CASCADE("Cascade"), ZOOM("Focus in"), OFF("Off")
+    WAVE("Ripple wave"), VORTEX("Vortex"), ASSEMBLE("Assemble"), MAGNET("Magnetic"), DOMINO("Domino"),
+    BLOOM("Bloom"), RISE("Rise up"), CASCADE("Cascade"), ZOOM("Focus in"), OFF("Off")
 }
 
 /** How AndroForge's pull-down shade opens. */
 @Serializable
-enum class ShadeAnim(val label: String) { MORPH("Grow from the island"), UNFOLD("Unfold"), DROP("Spring drop"), FADE("Fade & scale") }
+enum class ShadeAnim(val label: String) { MORPH("Grow from the island"), LIQUID("Liquid pour"), UNFOLD("Unfold"), DROP("Spring drop"), FADE("Fade & scale") }
 
 /** How home pages move when you swipe between them. */
 @Serializable
@@ -230,6 +231,12 @@ data class LauncherSettings(
     val shadeAnim: ShadeAnim = ShadeAnim.MORPH,
     /** The home screen sinks back a little as an app opens over it. */
     val launchDepth: Boolean = true,
+    /** Rings and sparks on an app's icon when you come back from it. */
+    val landingBurst: Boolean = true,
+    /** A shockwave ring that sweeps the home screen as it rebuilds. */
+    val homeShockwave: Boolean = true,
+    /** Drawer icons cascade in row by row as it opens. */
+    val drawerCascade: Boolean = true,
     val animScale: Float = 0.8f,
     val animBounce: Float = 0.3f,
     val stretchScroll: Boolean = true,

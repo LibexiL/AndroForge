@@ -1,5 +1,6 @@
 package com.libexil.androforge.island
 
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.animation.animateContentSize
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.foundation.gestures.draggable
@@ -139,6 +140,7 @@ fun ShadeContent(service: AccessibilityService, geo: IslandGeometry, onRemove: (
                 when (s.shadeAnim) {
                     com.libexil.androforge.data.ShadeAnim.DROP -> androidx.compose.animation.core.spring(dampingRatio = 0.62f, stiffness = 340f / motion.scale.coerceAtLeast(0.2f))
                     com.libexil.androforge.data.ShadeAnim.MORPH -> androidx.compose.animation.core.spring(dampingRatio = 0.86f, stiffness = 300f / motion.scale.coerceAtLeast(0.2f))
+                    com.libexil.androforge.data.ShadeAnim.LIQUID -> androidx.compose.animation.core.tween((620 * motion.scale).toInt().coerceAtLeast(1), easing = androidx.compose.animation.core.LinearOutSlowInEasing)
                     else -> androidx.compose.animation.core.tween((420 * motion.scale).toInt().coerceAtLeast(1), easing = androidx.compose.animation.core.FastOutSlowInEasing)
                 },
             )
@@ -265,6 +267,31 @@ fun ShadeContent(service: AccessibilityService, geo: IslandGeometry, onRemove: (
                             translationY = -(1f - pc) * (sb.toPx() * 0.6f) + dragged
                             alpha = (pc * 5f).coerceAtMost(1f) * dragFade
                         }
+                        com.libexil.androforge.data.ShadeAnim.LIQUID -> {
+                            // Pours down from the top like liquid: the leading edge is a wave that
+                            // ripples across and calms as the panel fills.
+                            val h = size.height * cubicOut(pc)
+                            val amp = (1f - pc) * 34.dp.toPx() * (if (pc < 0.15f) pc / 0.15f else 1f)
+                            val phase = pc * 14f
+                            clip = true
+                            shape = androidx.compose.foundation.shape.GenericShape { sz, _ ->
+                                val r = cornerPx.coerceAtMost(sz.width / 4f)
+                                moveTo(0f, r)
+                                quadraticTo(0f, 0f, r, 0f)
+                                lineTo(sz.width - r, 0f)
+                                quadraticTo(sz.width, 0f, sz.width, r)
+                                val steps = 28
+                                for (i in 0..steps) {
+                                    val x = sz.width * (1f - i / steps.toFloat())
+                                    val wave = kotlin.math.sin(x / sz.width * 9.4f + phase) * amp +
+                                        kotlin.math.sin(x / sz.width * 3.1f - phase * 0.6f) * amp * 0.5f
+                                    lineTo(x, (h + wave - amp).coerceIn(0f, sz.height))
+                                }
+                                close()
+                            }
+                            translationY = dragged
+                            alpha = (pc * 4f).coerceAtMost(1f) * dragFade
+                        }
                         com.libexil.androforge.data.ShadeAnim.UNFOLD -> {
                             cameraDistance = 16f * density
                             rotationX = (1f - pc) * -75f
@@ -282,6 +309,21 @@ fun ShadeContent(service: AccessibilityService, geo: IslandGeometry, onRemove: (
                             translationY = dragged
                             alpha = pc * dragFade
                         }
+                    }
+                }
+                .drawWithContent {
+                    drawContent()
+                    // A light sheen sweeps down the glass as it opens.
+                    val p = progress.value.coerceIn(0f, 1f)
+                    if (p in 0.05f..0.98f && s.animations) {
+                        val band = size.height * 0.28f
+                        val y = -band + (size.height + band * 2f) * cubicOut(p)
+                        drawRect(
+                            Brush.verticalGradient(
+                                listOf(Color.Transparent, Color.White.copy(alpha = 0.16f * (1f - p)), Color.Transparent),
+                                startY = y - band, endY = y + band,
+                            ),
+                        )
                     }
                 }
                 .pointerInput(Unit) { detectTapGestures { } },
@@ -376,7 +418,7 @@ fun ShadeView(s: LauncherSettings, pal: Pal, actions: ShadeActions, modifier: Mo
                         .horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    rest.forEach { t -> Box(Modifier.width(54.dp)) { ShadeTileView(t, s, pal, hl, hlBrush, actions, pill = false, preview = preview, small = true) } }
+                    rest.forEachIndexed { i, t -> Box(Modifier.width(54.dp).shadeTilePop(i)) { ShadeTileView(t, s, pal, hl, hlBrush, actions, pill = false, preview = preview, small = true) } }
                 }
             }
         } else {
@@ -452,7 +494,7 @@ fun ShadeView(s: LauncherSettings, pal: Pal, actions: ShadeActions, modifier: Mo
             var expanded by remember { androidx.compose.runtime.mutableStateOf(setOf<String>()) }
             groups.forEachIndexed { gi, g ->
                 androidx.compose.runtime.key(g.first().pkg) {
-                    Box(Modifier.shadeItem(7 + gi)) {
+                    Box(Modifier.shadeItem(7 + gi, side = if (gi % 2 == 0) -1 else 1)) {
                     if (g.size == 1) {
                         ShadeNotification(g.first(), pal, actions)
                     } else {
@@ -1075,7 +1117,7 @@ private fun cubicOut(t: Float): Float = 1f - (1f - t) * (1f - t) * (1f - t)
 
 /** Section [index] of the shade drifts down into place a beat after the one above it. */
 @Composable
-fun Modifier.shadeItem(index: Int): Modifier {
+fun Modifier.shadeItem(index: Int, side: Int = 0): Modifier {
     val r = LocalShadeReveal.current ?: return this
     return this.graphicsLayer {
         val p = r.progress.value.coerceIn(0f, 1f)
@@ -1085,8 +1127,33 @@ fun Modifier.shadeItem(index: Int): Modifier {
         val e = cubicOut(t)
         alpha = e
         translationY = (1f - e) * -14.dp.toPx()
+        if (side != 0) {
+            // Notifications slide in from alternating sides, tilting as they arrive.
+            translationX = side * (1f - e) * 60.dp.toPx()
+            rotationZ = side * (1f - e) * 4f
+        }
         val k = 0.96f + 0.04f * e
         scaleX = k
         scaleY = k
+    }
+}
+
+
+/** Tile [index] in the row pops in with a spin, one after another. */
+@Composable
+fun Modifier.shadeTilePop(index: Int): Modifier {
+    val r = LocalShadeReveal.current ?: return this
+    return this.graphicsLayer {
+        val p = r.progress.value.coerceIn(0f, 1f)
+        if (p >= 1f) return@graphicsLayer
+        val start = 0.25f + index.coerceAtMost(12) * 0.04f
+        val t = ((p - start) / (1f - start).coerceAtLeast(0.1f)).coerceIn(0f, 1f)
+        val x = t - 1f
+        val back = 1f + 2.7f * x * x * x + 1.7f * x * x
+        val k = 0.3f + 0.7f * back
+        scaleX = k
+        scaleY = k
+        rotationZ = (1f - t) * -40f
+        alpha = cubicOut(t)
     }
 }

@@ -271,6 +271,10 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                         Hint(
                             when (s.homeEnter) {
                                 com.libexil.androforge.data.HomeEnter.WAVE -> "Icons and widgets rebuild in a ripple from the middle, coming into focus as they land."
+                                com.libexil.androforge.data.HomeEnter.VORTEX -> "Everything spirals out of the center of the screen and swings into its spot."
+                                com.libexil.androforge.data.HomeEnter.ASSEMBLE -> "Pieces fly in from all directions, tumbling, and lock together."
+                                com.libexil.androforge.data.HomeEnter.MAGNET -> "Icons are pulled up out of the dock and snap into place, stretching as they fly."
+                                com.libexil.androforge.data.HomeEnter.DOMINO -> "Items swing open like doors, one after another down the screen."
                                 com.libexil.androforge.data.HomeEnter.BLOOM -> "Everything blooms in from the edges toward the center, with a little twist."
                                 com.libexil.androforge.data.HomeEnter.RISE -> "Rows rise up from the dock, bottom first."
                                 com.libexil.androforge.data.HomeEnter.CASCADE -> "Items flip down into place, corner to corner."
@@ -279,6 +283,9 @@ fun SettingsScreen(vm: LauncherViewModel, host: LauncherHost, state: LauncherSta
                             },
                         )
                     }
+                    item { SwitchRow("Shockwave", s.homeShockwave, "A glowing ring sweeps the screen as it rebuilds") { v -> set { it.copy(homeShockwave = v) } } }
+                    item { SwitchRow("Landing burst", s.landingBurst, "Rings and sparks on an app's icon when you come back from it") { v -> set { it.copy(landingBurst = v) } } }
+                    item { SwitchRow("Drawer cascade", s.drawerCascade, "Drawer icons tip up into place row by row as it opens") { v -> set { it.copy(drawerCascade = v) } } }
                     item { Choice("Pull-down shade", com.libexil.androforge.data.ShadeAnim.entries, s.shadeAnim, { it.label }) { v -> set { it.copy(shadeAnim = v) } } }
                     item {
                         SystemSpeedRow(context)

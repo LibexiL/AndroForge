@@ -332,7 +332,11 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     // ---------------------------------------------------------------- apps
 
+    /** Where the last app was launched from (its icon), for the "landing" effect on return. */
+    var lastLaunchRect: android.graphics.Rect? = null
+
     fun launch(key: AppKey, bounds: android.graphics.Rect? = null) {
+        lastLaunchRect = bounds?.let { android.graphics.Rect(it) }
         val opts = runCatching { host?.launchOptions(bounds) }.getOrNull()
         if (repo.launch(key, bounds, opts)) emit(UiEvent.AppLaunched)
     }

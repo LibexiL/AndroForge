@@ -190,6 +190,8 @@ fun LauncherScreen(vm: LauncherViewModel, host: LauncherHost) {
     val motion = remember(settings.animations, settings.animScale, settings.animBounce) { Motion.of(settings) }
     val launchDepth = remember { androidx.compose.animation.core.Animatable(0f) }
     val homeEnter = remember { androidx.compose.animation.core.Animatable(1f) }
+    val landing = remember { androidx.compose.animation.core.Animatable(1f) }
+    var landingRect by remember { mutableStateOf<android.graphics.Rect?>(null) }
     SideEffect { drawer.motion = motion }
     val context = LocalContext.current
     val density = LocalDensity.current
@@ -226,6 +228,14 @@ fun LauncherScreen(vm: LauncherViewModel, host: LauncherHost) {
                 is UiEvent.HomeReturn -> launch {
                     launchDepth.snapTo(0f)
                     val st = vm.state.value.settings
+                    if (e.rebuild && st.animations && st.landingBurst) {
+                        landingRect = vm.lastLaunchRect
+                        vm.lastLaunchRect = null
+                        if (landingRect != null) launch {
+                            landing.snapTo(0f)
+                            landing.animateTo(1f, androidx.compose.animation.core.tween((950 * motion.scale).toInt().coerceAtLeast(1), easing = androidx.compose.animation.core.LinearEasing))
+                        }
+                    }
                     if (e.rebuild && st.animations && st.homeEnter != com.libexil.androforge.data.HomeEnter.OFF) {
                         homeEnter.snapTo(0f)
                         homeEnter.animateTo(1f, androidx.compose.animation.core.tween((760 * motion.scale).toInt().coerceAtLeast(1), easing = androidx.compose.animation.core.LinearEasing))
@@ -287,6 +297,8 @@ fun LauncherScreen(vm: LauncherViewModel, host: LauncherHost) {
                     },
             ) {
                 drawer.heightPx = constraints.maxHeight.toFloat().coerceAtLeast(1f)
+                homeEnterState.screenW = constraints.maxWidth.toFloat()
+                homeEnterState.screenH = constraints.maxHeight.toFloat()
                 val swipeThreshold = with(density) { 90.dp.toPx() }
 
                 // ---------------- home layer
@@ -409,6 +421,15 @@ fun LauncherScreen(vm: LauncherViewModel, host: LauncherHost) {
                 }
 
                 DragTargetsBar(drag)
+
+                HomeFx(
+                    rebuild = { homeEnter.value },
+                    shockwave = settings.homeShockwave && settings.homeEnter != com.libexil.androforge.data.HomeEnter.OFF,
+                    landing = { landing.value },
+                    landingRect = landingRect,
+                    pal = palette,
+                    modifier = Modifier.fillMaxSize(),
+                )
 
                 // ---------------- overlays
                 if (drawer.isOpen || (drag.source is DragSource.Drawer)) {
