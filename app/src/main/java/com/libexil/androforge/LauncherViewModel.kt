@@ -533,9 +533,13 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         }
         val p = com.libexil.androforge.data.Palettes.fromWallpaper(app, allowSystemPalette = false)
         if (p == null) {
-            toast("Your phone isn't sharing the wallpaper \u2014 use \u201cFrom an image\u201d and pick your wallpaper photo")
+            // Can't read it at all: let you pick the wallpaper image instead (same result).
+            toast("Your phone won't share the wallpaper \u2014 pick your wallpaper image and it'll match that")
+            host?.pickPaletteImage()
             return
         }
+        // Even if the theme already follows the wallpaper, recolor everything now.
+        com.libexil.androforge.data.Palettes.wallpaperTick.value = com.libexil.androforge.data.Palettes.wallpaperTick.value + 1
         updateSettings {
             it.copy(
                 paletteSource = com.libexil.androforge.data.PaletteSource.WALLPAPER,

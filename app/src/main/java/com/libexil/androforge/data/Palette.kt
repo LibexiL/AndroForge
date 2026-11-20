@@ -138,9 +138,33 @@ object Palettes {
         val wm = WallpaperManager.getInstance(context)
         @Suppress("MissingPermission")
         val d = wm.drawable ?: wm.peekDrawable()
-        d?.let { it.toBitmap(128, (128f * it.intrinsicHeight.coerceAtLeast(1) / it.intrinsicWidth.coerceAtLeast(1)).toInt().coerceIn(32, 512)) }
+        val bmp = d?.let { it.toBitmap(128, (128f * it.intrinsicHeight.coerceAtLeast(1) / it.intrinsicWidth.coerceAtLeast(1)).toInt().coerceIn(32, 512)) }
+        // Newer Android quietly hands apps the stock wallpaper instead of yours when it won't
+        // share it. That isn't your wallpaper, so treat it as unreadable.
+        if (bmp != null && looksLikeBuiltIn(wm, bmp)) null else bmp
     } catch (e: Throwable) {
         null
+    }
+
+    private fun looksLikeBuiltIn(wm: WallpaperManager, bmp: android.graphics.Bitmap): Boolean = try {
+        val builtIn = wm.getBuiltInDrawable(WallpaperManager.FLAG_SYSTEM) ?: wm.builtInDrawable
+        if (builtIn == null) {
+            false
+        } else {
+            val a = android.graphics.Bitmap.createScaledBitmap(bmp, 16, 16, true)
+            val b = builtIn.toBitmap(16, 16)
+            var diff = 0L
+            for (y in 0 until 16) for (x in 0 until 16) {
+                val p = a.getPixel(x, y)
+                val q = b.getPixel(x, y)
+                diff += kotlin.math.abs(android.graphics.Color.red(p) - android.graphics.Color.red(q)) +
+                    kotlin.math.abs(android.graphics.Color.green(p) - android.graphics.Color.green(q)) +
+                    kotlin.math.abs(android.graphics.Color.blue(p) - android.graphics.Color.blue(q))
+            }
+            diff / (256 * 3) < 6
+        }
+    } catch (e: Throwable) {
+        false
     }
 
     private var cachedId = -2
